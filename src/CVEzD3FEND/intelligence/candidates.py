@@ -30,10 +30,9 @@ from CVEzD3FEND.intelligence.providers import get_provider
 from CVEzD3FEND.intelligence.providers.base import Provider
 from CVEzD3FEND.models.ai import AICandidate
 from CVEzD3FEND.models.bundle import Bundle
-from CVEzD3FEND.models.graph import Edge, EdgeType, Node, NodeType
+from CVEzD3FEND.models.graph import Edge, EdgeType, Node
+from CVEzD3FEND.query import REPO_ROOT
 from CVEzD3FEND.util import now_iso, safe_id_fragment
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _prompt_hash(prompt: str) -> str:
@@ -86,20 +85,25 @@ def generate_candidates(
     existing = load_candidates(settings)
     seen_inputs = {tuple(c.input_refs[:2]) for c in existing}
 
-    gap_nodes = [
-        n
-        for n in bundle.nodes
-        if n.type == NodeType.GAP and n.metadata.get("reason") == "attack_without_defend"
-    ]
+    # Use the (uncapped) coverage table rather than first-class `gap` nodes:
+    # `gap` nodes are capped per-reason (settings.max_gaps_per_reason) so the
+    # bundle stays bounded, but `bundle.coverage.techniques` covers every
+    # ATT&CK technique and is the authoritative source of open gaps here.
+    gapped_attack_ids = sorted(
+        t.attack_technique
+        for t in bundle.coverage.techniques
+        if t.gap_reason == "attack_without_defend"
+    )
 
     new_candidates: list[AICandidate] = []
-    for gap in sorted(gap_nodes, key=lambda n: n.id):
+    for attack_id in gapped_attack_ids:
         if len(new_candidates) >= limit:
             break
-        attack_id = gap.metadata.get("target")
         attack_node = nodes_by_id.get(attack_id)
-        if attack_id is None or attack_node is None:
+        if attack_node is None:
             continue
+
+        gap_id = f"GAP-{safe_id_fragment(attack_id)}-ATTACK_WITHOUT_DEFEND"
 
         analogues = sorted(
             a for a in base_groups.get(_base_technique(attack_id), []) if a != attack_id
@@ -158,13 +162,18 @@ def generate_candidates(
         citations = rag.retrieve_bundle(f"{attack_id} {attack_node.name}", bundle, top_k=3)
         candidate_id = f"AIC-{safe_id_fragment(attack_id)}-{safe_id_fragment(analogue)}"
 
+        input_refs = [attack_id, analogue]
+        if gap_id in nodes_by_id:
+            input_refs.append(gap_id)
+        input_refs.extend(c.ref for c in citations)
+
         new_candidates.append(
             AICandidate(
                 candidate_id=candidate_id,
                 created_at=now_iso(),
                 provider=provider.name,
                 prompt_hash=_prompt_hash(prompt),
-                input_refs=[attack_id, analogue, gap.id, *[c.ref for c in citations]],
+                input_refs=input_refs,
                 proposed_nodes=[],
                 proposed_edges=[e.model_dump(mode="json") for e in proposed_edges],
                 rationale=rationale,

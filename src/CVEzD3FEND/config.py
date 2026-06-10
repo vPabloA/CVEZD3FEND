@@ -9,7 +9,15 @@ from __future__ import annotations
 import datetime as _dt
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Provider API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY,
+# LOCAL_OPENAI_*) are read directly from os.environ by intelligence/providers/*
+# (unprefixed, per AI_ASSISTANCE_CONTRACT). pydantic-settings only loads
+# CVEZD3FEND_*-prefixed values from .env into Settings, so load .env into the
+# process environment too -- without this, keys placed in .env are inert.
+load_dotenv()
 
 
 class Settings(BaseSettings):
