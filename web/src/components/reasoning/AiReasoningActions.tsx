@@ -26,6 +26,7 @@ export default function AiReasoningActions({
   busyEdgeId = null,
   promoteMessage = null,
   onPromote,
+  onReviewerChange,
 }: {
   cveId: string;
   apiAvailable: boolean;
@@ -34,6 +35,7 @@ export default function AiReasoningActions({
   busyEdgeId?: string | null;
   promoteMessage?: string | null;
   onPromote?: (edgeId: string) => void;
+  onReviewerChange?: (value: string) => void;
 }) {
   const [propose, setPropose] = useState<ActionState>(IDLE);
   const [validate, setValidate] = useState<ActionState>(IDLE);
@@ -119,6 +121,16 @@ export default function AiReasoningActions({
               <p className="mt-1 text-xs text-slate-400">No reviewable edges in this route.</p>
             ) : (
               <div className="mt-2 flex flex-col gap-2">
+                <label className="flex flex-col gap-1 text-xs">
+                  <span className="font-semibold uppercase tracking-wide text-slate-400">Reviewer</span>
+                  <input
+                    type="text"
+                    value={reviewer}
+                    onChange={(event) => onReviewerChange?.(event.target.value)}
+                    placeholder="your name"
+                    className="rounded border border-slate-300 bg-white px-2 py-1 text-xs focus:border-link focus:outline-none focus-visible:ring-2 focus-visible:ring-link"
+                  />
+                </label>
                 <select
                   value={selectedEdgeId}
                   onChange={(event) => setSelectedEdgeId(event.target.value)}
@@ -139,7 +151,7 @@ export default function AiReasoningActions({
                 >
                   {busyEdgeId === selectedEdgeId ? "Promoting..." : "Promote selected edge"}
                 </button>
-                {!reviewer.trim() && <p className="text-xs text-slate-400">Enter reviewer identity in the top bar to promote.</p>}
+                {!reviewer.trim() && <p className="text-xs text-slate-400">Enter a reviewer name to promote the selected edge.</p>}
                 {promoteMessage && <p className="rounded border border-slate-200 bg-white p-2 text-xs text-slate-600">{promoteMessage}</p>}
               </div>
             )}

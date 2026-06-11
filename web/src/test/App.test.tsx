@@ -24,20 +24,15 @@ afterEach(() => {
 });
 
 describe("App", () => {
-  it("renders the home page with navigation including the Reasoning workbench entry point", async () => {
+  it("renders the simplified landing surface with a single primary analyze action", async () => {
     render(
       <MemoryRouter initialEntries={["/"]}>
         <App />
       </MemoryRouter>
     );
 
-    const nav = screen.getByRole("navigation", { name: /main navigation/i });
-    expect(nav).toHaveTextContent("Search");
-    expect(nav).toHaveTextContent("Analyze");
-    expect(nav).toHaveTextContent("Coverage");
-    expect(nav).toHaveTextContent("AI Review");
-
-    expect(await screen.findByText("Search the knowledge bundle", { selector: "p" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /reasoning workbench/i })).toHaveAttribute("href", "/analyze");
+    expect(await screen.findByRole("heading", { name: /analiza una cve/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /analizar cve/i })).toHaveAttribute("href", "/analyze");
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
   });
 });

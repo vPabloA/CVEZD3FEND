@@ -50,6 +50,7 @@ function ReasoningResultView({
   busyEdgeId,
   promoteMessage,
   onPromote,
+  onReviewerChange,
 }: {
   result: ReasoningResult;
   cveId: string;
@@ -58,6 +59,7 @@ function ReasoningResultView({
   busyEdgeId: string | null;
   promoteMessage: string | null;
   onPromote: (edgeId: string) => void;
+  onReviewerChange: (value: string) => void;
 }) {
   const [selectedNode, setSelectedNode] = useState<string | null>(result.route.canonical_chain[0] ?? result.normalized_input ?? result.input);
   const cveLabel = result.normalized_input || result.input;
@@ -158,6 +160,7 @@ function ReasoningResultView({
             busyEdgeId={busyEdgeId}
             promoteMessage={promoteMessage}
             onPromote={onPromote}
+            onReviewerChange={onReviewerChange}
           />
         </aside>
       </div>
@@ -240,16 +243,6 @@ CVEzD3FEND enrich <cve_id> --mode cached # offline/cached enrichment fallback`}
               <div className="flex-1">
                 <CveAnalyzeForm value={cve} busy={reasoning.loading} onSubmit={setCve} />
               </div>
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Reviewer name</span>
-                <input
-                  type="text"
-                  value={reviewer}
-                  onChange={(e) => setReviewer(e.target.value)}
-                  placeholder="your name"
-                  className="rounded border border-slate-300 px-2 py-1 text-sm focus:border-link focus:outline-none focus-visible:ring-2 focus-visible:ring-link"
-                />
-              </label>
               {cve.trim() && (
                 <button
                   type="button"
@@ -288,6 +281,7 @@ CVEzD3FEND enrich <cve_id> --mode cached # offline/cached enrichment fallback`}
               busyEdgeId={busyEdgeId}
               promoteMessage={promoteMessage}
               onPromote={handlePromote}
+              onReviewerChange={setReviewer}
             />
           ) : null}
         </>

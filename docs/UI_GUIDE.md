@@ -23,7 +23,7 @@ cd web && npm run dev
 
 ## Pages
 
-- `/` — Home / Search (`pages/HomePage.tsx`)
+- `/` — Launch surface and bundle search (`pages/HomePage.tsx`)
 - `/route/:routeId` — Route Navigator (`pages/RoutePage.tsx`)
 - `/node/:nodeId` — Node Detail (`pages/NodeDetailPage.tsx`)
 - `/coverage` — Defensive Coverage (`pages/CoveragePage.tsx`)
@@ -31,6 +31,10 @@ cd web && npm run dev
 - `/ai-review` — AI Review Queue (`pages/AiReviewPage.tsx`)
 - `/analyze` — Reasoning Workbench (`pages/AnalyzePage.tsx`) — see
   [Reasoning Workbench](#reasoning-workbench) below.
+
+The primary header now keeps only the product identity and one main action
+(`Analizar CVE` or `Inicio`). Secondary surfaces like coverage and AI review
+remain reachable, but they are no longer framed as competing top-level modules.
 
 ## Key library modules
 
@@ -82,6 +86,7 @@ for attack surface reasoning and graph navigation. It still runs the live
 enrichment + reasoning engine for a single CVE, but the hierarchy is now
 operational instead of contract-first:
 
+- Default state: one CVE input, explanatory copy, and optional advanced access.
 - Top command bar: CVE input, Analyze/Refresh, reviewer identity, source/state
   indicators.
 - Left rail: route entities, node-type counts, evidence classification counts,
@@ -152,9 +157,9 @@ The page depends on the optional API sidecar (`CVEzD3FEND api`,
   (AI_ASSISTANCE_CONTRACT: AI proposes, the engine validates
   deterministically); disabled with an inline "API offline" message when the
   sidecar is unavailable. In the Single Pane of Glass it also owns the one
-  governed "Promote selected edge" action, gated on reviewer identity. Results
-  render as visible facts via `KeyFacts`, never as hidden reasoning or raw
-  model dumps.
+  governed "Promote selected edge" action, gated on reviewer identity and only
+  shown when there is actually a reviewable edge. Results render as visible
+  facts via `KeyFacts`, never as hidden reasoning or raw model dumps.
 - `KeyFacts` — generic, depth-limited renderer for heterogeneous
   `Record<string, unknown>` facts (CVSS/EPSS/KEV shapes, AI responses).
 

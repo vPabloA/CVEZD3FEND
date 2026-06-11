@@ -5,13 +5,17 @@ export default function SearchBar({
   onChange,
   placeholder = "Search CVE, CWE, CAPEC, ATT&CK, D3FEND, ATLAS, control, detection, gap…",
   autoFocus = false,
+  onSubmit,
+  submitLabel,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  onSubmit?: () => void;
+  submitLabel?: string;
 }) {
-  return (
+  const body = (
     <div className="flex flex-col gap-2">
       <label htmlFor="cvezd3fend-search" className="sr-only">
         Search the knowledge bundle
@@ -41,5 +45,28 @@ export default function SearchBar({
         </div>
       )}
     </div>
+  );
+
+  if (!onSubmit) return body;
+
+  return (
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      {body}
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          disabled={!value.trim()}
+          className="rounded-full border border-link bg-link px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-link disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {submitLabel ?? "Analyze"}
+        </button>
+      </div>
+    </form>
   );
 }
