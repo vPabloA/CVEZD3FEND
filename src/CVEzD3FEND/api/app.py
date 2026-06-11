@@ -20,6 +20,8 @@ from pydantic import BaseModel
 from CVEzD3FEND import __version__
 from CVEzD3FEND.actions.soc_action_pack import build_soc_action_pack
 from CVEzD3FEND.config import Settings, get_settings
+from CVEzD3FEND.enrichment import SourceOrchestrator, available_sources
+from CVEzD3FEND.enrichment.models import SourceFetchError
 from CVEzD3FEND.export import csv_export, json_export, markdown, mermaid
 from CVEzD3FEND.intelligence import candidates as ai_candidates
 from CVEzD3FEND.intelligence import explain as ai_explain
@@ -132,8 +134,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "edge_count": len(bundle.edges),
             "route_count": len(bundle.routes),
             "sources": [s.model_dump(mode="json") for s in bundle.sources],
+            "enrichment_sources": available_sources(),
             "quality": bundle.quality,
             "coverage_summary": bundle.coverage.summary.model_dump(mode="json"),
+        }
+
+    @app.get("/api/evidence/{source_name}")
+    def get_evidence(
+        source_name: str,
+        subject: str = Query(..., min_length=1),
+        mode: str = Query("live", pattern="^(live|cached|offline)$"),
+    ) -> dict:
+        orchestrator = SourceOrchestrator(settings)
+        try:
+            result = orchestrator.collect(source_name, subject, mode=mode)
+        except SourceFetchError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        finally:
+            orchestrator.close()
+        return {
+            "source": source_name,
+            "subject": subject,
+            "mode": mode,
+            "from_cache": result.from_cache,
+            "fallback_used": result.fallback_used,
+            "evidence": result.evidence.model_dump(mode="json"),
         }
 
     # -- Search / nodes ------------------------------------------------------

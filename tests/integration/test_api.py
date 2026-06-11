@@ -9,6 +9,8 @@ to `data/review/`) without touching the real `data/` directory.
 from __future__ import annotations
 
 import pytest
+import httpx
+import respx
 from fastapi.testclient import TestClient
 
 from CVEzD3FEND.api.app import create_app
@@ -38,6 +40,47 @@ def test_meta(client):
     body = resp.json()
     assert body["node_count"] == 14
     assert body["route_count"] >= 1
+    assert "nvd" in body["enrichment_sources"]
+
+
+@respx.mock
+def test_evidence_endpoint(client):
+    cve_id = "CVE-2099-0001"
+    url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={cve_id}"
+    respx.get(url).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "totalResults": 1,
+                "vulnerabilities": [
+                    {
+                        "cve": {
+                            "id": cve_id,
+                            "descriptions": [
+                                {"lang": "en", "value": "Path traversal leads to secret disclosure."}
+                            ],
+                            "metrics": {
+                                "cvssMetricV31": [
+                                    {
+                                        "cvssData": {"baseScore": 7.5},
+                                        "baseSeverity": "HIGH",
+                                    }
+                                ]
+                            },
+                            "references": {"referenceData": [{"url": "https://example.test/nvd"}]},
+                        }
+                    }
+                ],
+            },
+        )
+    )
+
+    resp = client.get("/api/evidence/nvd", params={"subject": cve_id})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source"] == "nvd"
+    assert body["evidence"]["data"]["cve"] == cve_id
+    assert "path traversal" in body["evidence"]["data"]["semantic_traits"]
 
 
 def test_search(client):

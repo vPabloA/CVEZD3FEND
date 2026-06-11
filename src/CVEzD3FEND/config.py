@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # --- Optional collectors ---
     enable_kev: bool = False
     enable_epss: bool = False
+    enable_live_enrichment: bool = False
+    enrichment_cache_limit: int = 20
+    nvd_api_key: str | None = None
+    github_token: str | None = None
 
     # --- AI / intelligence ---
     ai_enabled: bool = False
