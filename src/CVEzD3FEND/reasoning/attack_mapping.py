@@ -48,7 +48,7 @@ def attack_candidates(semantic_tags: list[str]) -> list[AttackCandidate]:
         candidates.append(
             AttackCandidate(
                 attack_id="T1059.004",
-                evidence="PowerShell es plausible cuando la ejecución de comandos aparece en entornos Windows.",
+                evidence="Unix Shell es plausible en contextos Linux, Unix, macOS, contenedores o Kubernetes cuando aparece ejecución de comandos.",
                 confidence=0.54,
             )
         )

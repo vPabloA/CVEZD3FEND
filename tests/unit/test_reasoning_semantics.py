@@ -19,11 +19,15 @@ def test_attack_candidates_use_canonical_semantics():
     ]
 
     attack_ids = [candidate.attack_id for candidate in attack_candidates(tags)]
+    t1059_004 = next(candidate for candidate in attack_candidates(tags) if candidate.attack_id == "T1059.004")
 
     assert "T1190" in attack_ids
     assert "T1210" in attack_ids
     assert "T1059" in attack_ids
     assert "T1059.004" in attack_ids
+    assert "Unix Shell" in t1059_004.evidence
+    assert "PowerShell" not in t1059_004.evidence
+    assert "T1059.001" not in attack_ids
 
 
 def test_defensive_intents_include_execution_containment():
