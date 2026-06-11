@@ -98,6 +98,7 @@ def test_enrich_reason_explain_hunt_detect_ctem_smoke(reasoning_env):
     enrich_json = json.loads(enrich.stdout)
     assert enrich_json["normalized_input"] == cve_id
     assert enrich_json["profile"]["semantic_tags"]
+    assert {"rce", "command_injection", "public_facing_application"} <= set(enrich_json["profile"]["semantic_tags"])
     assert enrich_json["status"] in {"ok", "degraded"}
 
     reason = runner.invoke(app, ["reason", cve_id, "--format", "json"])
@@ -107,7 +108,10 @@ def test_enrich_reason_explain_hunt_detect_ctem_smoke(reasoning_env):
     assert reason_json["baseline_provider"] == "CVE2CAPEC"
     assert reason_json["route"]["canonical_chain"]
     assert reason_json["provenance"]
-    assert reason_json["human_review"]["required"] in {True, False}
+    assert reason_json["human_review"]["required"] is True
+    assert reason_json["provenance"]["conditional"]
+    assert any(edge["target"] == "T1190" for edge in reason_json["edges"])
+    assert any(edge["target"] in {"T1059", "T1059.004"} for edge in reason_json["edges"])
     assert all(
         not (edge["inferred"] and edge["classification"] == "official_explicit")
         for edge in reason_json["edges"]

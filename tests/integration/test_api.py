@@ -80,7 +80,7 @@ def test_evidence_endpoint(client):
     body = resp.json()
     assert body["source"] == "nvd"
     assert body["evidence"]["data"]["cve"] == cve_id
-    assert "path traversal" in body["evidence"]["data"]["semantic_traits"]
+    assert "traversal" in body["evidence"]["data"]["semantic_traits"]
 
 
 def test_search(client):

@@ -16,10 +16,10 @@ def test_semantic_trait_extraction():
         "The vulnerability can lead to privilege escalation and data exfiltration.",
     )
 
-    assert "remote code execution" in traits
-    assert "command injection" in traits
-    assert "privilege escalation" in traits
-    assert "data exfiltration potential" in traits
+    assert "rce" in traits
+    assert "command_injection" in traits
+    assert "privilege_escalation" in traits
+    assert "data_exfiltration_potential" in traits
 
 
 @respx.mock
@@ -75,7 +75,7 @@ def test_nvd_enrichment_caches_and_reuses(tmp_path):
     assert live.evidence.status == "ok"
     assert live.evidence.cache_path is not None
     assert Path(live.evidence.cache_path).exists()
-    assert "remote code execution" in live.evidence.data["semantic_traits"]
+    assert "rce" in live.evidence.data["semantic_traits"]
 
     orchestrator.close()
 

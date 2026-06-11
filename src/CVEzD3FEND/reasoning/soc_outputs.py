@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from CVEzD3FEND.enrichment.normalizers import canonical_semantic_tags
+
 
 def soc_action_pack(semantic_tags: list[str], attack_ids: list[str], defensive_labels: list[str]) -> dict[str, list[str]]:
+    semantic_tags = canonical_semantic_tags(semantic_tags)
     return {
         "validations": [
             "Validar exposición real del activo afectado.",
@@ -36,6 +39,7 @@ def soc_action_pack(semantic_tags: list[str], attack_ids: list[str], defensive_l
 
 
 def detection_engineering(semantic_tags: list[str], attack_ids: list[str]) -> dict[str, list[str]]:
+    semantic_tags = canonical_semantic_tags(semantic_tags)
     return {
         "hypotheses": [
             "Si el CVE permite abuso externo, el patrón debe aparecer en logs de acceso y aplicación.",
@@ -59,6 +63,7 @@ def detection_engineering(semantic_tags: list[str], attack_ids: list[str]) -> di
 
 
 def threat_hunting(semantic_tags: list[str], attack_ids: list[str]) -> dict[str, list[str]]:
+    semantic_tags = canonical_semantic_tags(semantic_tags)
     return {
         "hypotheses": [
             "Buscar indicios de explotación alineados al vector semántico dominante del CVE.",
@@ -77,8 +82,9 @@ def threat_hunting(semantic_tags: list[str], attack_ids: list[str]) -> dict[str,
 
 
 def ctem_plan(semantic_tags: list[str], attack_ids: list[str]) -> dict[str, object]:
+    semantic_tags = set(canonical_semantic_tags(semantic_tags))
     return {
-        "priority": "high" if {"rce", "exposed service", "command injection"} & set(semantic_tags) else "medium",
+        "priority": "high" if {"rce", "exposed_service", "public_facing_application", "command_injection", "shell_execution"} & semantic_tags else "medium",
         "remediation_actions": [
             "Corregir la vulnerabilidad o deshabilitar la superficie afectada.",
             "Validar configuración segura y reducir privilegios del servicio.",

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from CVEzD3FEND.enrichment.normalizers import canonical_semantic_tags
+
 
 @dataclass(frozen=True)
 class AttackCandidate:
@@ -14,10 +16,10 @@ class AttackCandidate:
 
 
 def attack_candidates(semantic_tags: list[str]) -> list[AttackCandidate]:
-    tags = set(semantic_tags)
+    tags = set(canonical_semantic_tags(semantic_tags))
     candidates: list[AttackCandidate] = []
 
-    if {"exposed service", "public-facing application", "ssrf"} & tags:
+    if {"exposed_service", "public_facing_application", "ssrf"} & tags:
         candidates.append(
             AttackCandidate(
                 attack_id="T1190",
@@ -26,7 +28,7 @@ def attack_candidates(semantic_tags: list[str]) -> list[AttackCandidate]:
             )
         )
 
-    if {"remote service", "container context", "cloud context"} & tags:
+    if {"remote_service", "container_context", "cloud_context", "kubernetes_context"} & tags:
         candidates.append(
             AttackCandidate(
                 attack_id="T1210",
@@ -35,7 +37,7 @@ def attack_candidates(semantic_tags: list[str]) -> list[AttackCandidate]:
             )
         )
 
-    if {"command injection", "shell execution", "rce"} & tags:
+    if {"command_injection", "shell_execution", "rce"} & tags:
         candidates.append(
             AttackCandidate(
                 attack_id="T1059",
@@ -51,7 +53,7 @@ def attack_candidates(semantic_tags: list[str]) -> list[AttackCandidate]:
             )
         )
 
-    if {"deserialization", "path traversal", "privilege escalation"} & tags:
+    if {"deserialization", "traversal", "privilege_escalation"} & tags:
         candidates.append(
             AttackCandidate(
                 attack_id="T1068",

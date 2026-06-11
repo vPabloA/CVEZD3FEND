@@ -8,6 +8,7 @@ from typing import Any
 
 from CVEzD3FEND.config import Settings
 from CVEzD3FEND.enrichment import SourceOrchestrator
+from CVEzD3FEND.enrichment.normalizers import canonical_semantic_tags, extract_semantic_traits
 from CVEzD3FEND.enrichment.models import NormalizedEvidence
 from CVEzD3FEND.intelligence.providers import get_provider
 from CVEzD3FEND.intelligence.providers.base import ProviderError
@@ -99,28 +100,7 @@ def _flatten_cpe_matches(raw_matches: list[Any]) -> list[str]:
 
 
 def _semantic_tags(description: str, weakness_texts: list[str], cpe_matches: list[str], route_text: str) -> list[str]:
-    text = " ".join([description, *weakness_texts, *cpe_matches, route_text]).lower()
-    tags = []
-    checks = {
-        "rce": ["remote code execution", "arbitrary code execution", "rce"],
-        "command_injection": ["command injection", "shell injection", "os command"],
-        "config_injection": ["configuration injection", "annotation injection"],
-        "auth_bypass": ["authentication bypass", "authorization bypass"],
-        "ssrf": ["ssrf", "server-side request forgery"],
-        "deserialization": ["deserialization"],
-        "traversal": ["path traversal", "directory traversal"],
-        "privilege_escalation": ["privilege escalation"],
-        "secret_disclosure": ["secret disclosure", "information disclosure", "credential exposure"],
-        "exposed_service": ["exposed service", "public-facing application", "internet-facing"],
-        "kubernetes": ["kubernetes"],
-        "cloud": ["cloud"],
-        "container": ["container"],
-        "shell_execution": ["shell execution", "spawn shell", "command execution"],
-    }
-    for tag, needles in checks.items():
-        if any(needle in text for needle in needles):
-            tags.append(tag)
-    return tags
+    return canonical_semantic_tags(extract_semantic_traits(description, *weakness_texts, *cpe_matches, route_text))
 
 
 def _risk_level(tags: list[str], cvss: dict[str, Any] | None, epss: dict[str, Any] | None, kev: dict[str, Any] | None) -> dict[str, Any]:

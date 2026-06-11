@@ -86,12 +86,17 @@ def test_reasoning_endpoints(reasoning_client):
     enrich_json = enrich.json()
     assert enrich_json["normalized_input"] == cve_id
     assert enrich_json["profile"]["semantic_tags"]
+    assert {"rce", "public_facing_application"} <= set(enrich_json["profile"]["semantic_tags"])
 
     reason = reasoning_client.get(f"/api/reason/{cve_id}")
     assert reason.status_code == 200
     reason_json = reason.json()
     assert reason_json["route"]["canonical_chain"]
     assert reason_json["provenance"]
+    assert reason_json["human_review"]["required"] is True
+    assert reason_json["provenance"]["conditional"]
+    assert any(edge["target"] == "T1190" for edge in reason_json["edges"])
+    assert any(edge["target"] in {"T1059", "T1059.004"} for edge in reason_json["edges"])
 
     provenance = reasoning_client.get(f"/api/provenance/{cve_id}")
     assert provenance.status_code == 200
@@ -147,3 +152,5 @@ def test_cve_2026_4342_smoke(reasoning_client):
     body = reason.json()
     assert body["normalized_input"] == cve_id
     assert body["narrative"]["summary_es"]
+    assert body["human_review"]["required"] is True
+    assert body["provenance"]["conditional"] or body["provenance"]["weak_fit"]
