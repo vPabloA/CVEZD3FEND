@@ -2,6 +2,7 @@
 // Every call here is best-effort: callers must handle rejection by disabling
 // actions / showing ErrorState, never by leaving a dead button (UIX_CONTRACT §3, §8).
 import type { AICandidate } from "./types";
+import type { EnrichmentResult, ReasoningEdge, ReasoningResult, SourceMode } from "./reasoningTypes";
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://127.0.0.1:8000";
 
@@ -110,4 +111,79 @@ export function huntHypothesis(attackId: string): Promise<AiContextResult> {
 
 export function detectionBrief(attackId: string): Promise<AiContextResult> {
   return request(`/api/ai/detection-brief/${encodeURIComponent(attackId)}`, { method: "POST" });
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning plane (live enrichment + multi-framework reasoning)
+// ---------------------------------------------------------------------------
+
+export interface ApiMeta {
+  bundle_version: string;
+  generated_at: string;
+  schema_version: string;
+  node_count: number;
+  edge_count: number;
+  route_count: number;
+  sources: unknown[];
+  enrichment_sources: string[];
+  reasoning_available: boolean;
+  quality: unknown;
+  coverage_summary: unknown;
+}
+
+export function getMeta(): Promise<ApiMeta> {
+  return request<ApiMeta>("/api/meta");
+}
+
+/** Live/cached/offline enrichment profile for a CVE (no reasoning/route work). */
+export function enrichCve(cveId: string): Promise<EnrichmentResult> {
+  return request<EnrichmentResult>(`/api/enrich/${encodeURIComponent(cveId)}`);
+}
+
+/** Full reasoning result: risk, classified route contract, narrative, SOC/detection/hunting/CTEM, exports. */
+export function reasonCve(cveId: string): Promise<ReasoningResult> {
+  return request<ReasoningResult>(`/api/reason/${encodeURIComponent(cveId)}`);
+}
+
+export interface ProvenanceResult {
+  input: string;
+  normalized_input: string;
+  provenance: Record<string, ReasoningEdge[]>;
+}
+
+export function getProvenance(cveId: string): Promise<ProvenanceResult> {
+  return request<ProvenanceResult>(`/api/provenance/${encodeURIComponent(cveId)}`);
+}
+
+export interface EvidenceResult {
+  source: string;
+  subject: string;
+  mode: SourceMode;
+  from_cache: boolean;
+  fallback_used: boolean;
+  evidence: Record<string, unknown>;
+}
+
+/** Raw normalized evidence from a single live source for `subject` (e.g. a CVE id). */
+export function getEvidence(source: string, subject: string, mode: SourceMode = "live"): Promise<EvidenceResult> {
+  const qs = new URLSearchParams({ subject, mode });
+  return request<EvidenceResult>(`/api/evidence/${encodeURIComponent(source)}?${qs.toString()}`);
+}
+
+/** AI-proposed route for a CVE (AI_ASSISTANCE_CONTRACT: proposal only, never canonical). */
+export function proposeRoute(cveId: string): Promise<Record<string, unknown>> {
+  return request("/api/ai/propose-route", { method: "POST", body: JSON.stringify({ cve_id: cveId }) });
+}
+
+/** Deterministic validation of the reasoning route for a CVE against the bundle/contracts. */
+export function validateRoute(cveId: string): Promise<Record<string, unknown>> {
+  return request("/api/ai/validate-route", { method: "POST", body: JSON.stringify({ cve_id: cveId }) });
+}
+
+/** Promote a reasoning edge to the canonical overlay. Requires a named human reviewer. */
+export function promoteEdge(edgeId: string, reviewer: string): Promise<Record<string, unknown>> {
+  return request("/api/review/promote-edge", {
+    method: "POST",
+    body: JSON.stringify({ edge_id: edgeId, reviewer }),
+  });
 }

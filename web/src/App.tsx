@@ -6,6 +6,7 @@ import NodeDetailPage from "@/pages/NodeDetailPage";
 import CoveragePage from "@/pages/CoveragePage";
 import SocActionPackPage from "@/pages/SocActionPackPage";
 import AiReviewPage from "@/pages/AiReviewPage";
+import AnalyzePage from "@/pages/AnalyzePage";
 import EmptyState from "@/components/EmptyState";
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="coverage" element={<CoveragePage />} />
         <Route path="soc-action-pack/:id" element={<SocActionPackPage />} />
         <Route path="ai-review" element={<AiReviewPage />} />
+        <Route path="analyze" element={<AnalyzePage />} />
         <Route
           path="*"
           element={

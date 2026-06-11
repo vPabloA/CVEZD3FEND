@@ -99,6 +99,10 @@ export default function HomePage() {
         {!q.trim() ? (
           <EmptyState title="Search the knowledge bundle" hint="Try a CVE id, CWE-XXX, T1059, D3-FA, or any free text — or pick an example above.">
             <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-sm">
+              <Link to="/analyze" className="text-link hover:underline">
+                Reasoning workbench
+              </Link>
+              <span aria-hidden="true">·</span>
               <Link to="/coverage" className="text-link hover:underline">
                 Browse defensive coverage
               </Link>

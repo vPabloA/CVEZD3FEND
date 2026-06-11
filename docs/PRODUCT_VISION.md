@@ -71,15 +71,40 @@ SOC/CTEM program.
 - Not a real-time feed — the bundle is rebuilt on demand (`CVEzD3FEND build`),
   not streamed.
 
+## Reasoning Workbench
+
+The frontend (`web/`) exposes the live reasoning plane (`/api/enrich`,
+`/api/reason`, `/api/provenance`, `/api/evidence`, `/api/ai/propose-route`,
+`/api/ai/validate-route`, `/api/review/promote-edge`) through a dedicated
+"Reasoning Workbench" view at `/analyze` (see `docs/UI_GUIDE.md`). For a
+single CVE it surfaces: risk evidence (CVSS/EPSS/KEV/exploitability), a
+classified route contract (`ReasoningEdgeClassification`, 7 levels from
+`official_explicit` to `unverified`), the engine's narrative, a provenance
+ledger grouped by source, SOC Action Pack / Detection Engineering / Threat
+Hunting / CTEM outputs, and exports (markdown/tree/mermaid). AI-assisted
+route proposals and validation are shown as visible, labeled facts — never
+hidden chain-of-thought — and any non-canonical edge can only be promoted by
+a named human reviewer (AI_ASSISTANCE_CONTRACT). If the optional API sidecar
+is offline or the reasoning plane reports itself unavailable, the workbench
+shows that honestly with CLI start instructions, never a fake result.
+
+The workbench currently reserves, but does not yet implement, the layout slot
+for a graph-based view of this same reasoning output (see Roadmap below).
+
 ## Roadmap (indicative)
 
 - **Now**: CVE2CAPEC-derived bundle (techniques_association, CVE year DBs,
   ATLAS, D3FEND, CAPEC, CWE), deterministic graph, routes, coverage, gaps, SOC
   Action Packs, static frontend, CLI, optional API/MCP, governed AI candidate
-  queue with mock provider.
-- **Next**: CISA KEV + NVD 2.0 enrichment (kev/exploit/product/vendor nodes),
-  EPSS scoring field, official MITRE ATT&CK/CWE/CAPEC STIX name/description
-  enrichment collector (currently IDs-only for CWE; names degrade to
-  `CWE-<id>` — see DATA_SOURCES.md).
+  queue with mock provider, and the Reasoning Workbench (`/analyze`) exposing
+  the live enrichment/reasoning/provenance/AI-assist plane.
+- **Next**: **Threat-Defense Knowledge Graph Navigator** — an interactive
+  graph view of a CVE's classified reasoning route (canonical chain,
+  primary/secondary/conditional/defensive/weak-fit nodes, provenance per
+  edge), replacing the Reasoning Workbench's `GraphNavigatorPlaceholder`.
+  Alongside it: CISA KEV + NVD 2.0 enrichment (kev/exploit/product/vendor
+  nodes), EPSS scoring field, official MITRE ATT&CK/CWE/CAPEC STIX
+  name/description enrichment collector (currently IDs-only for CWE; names
+  degrade to `CWE-<id>` — see DATA_SOURCES.md).
 - **Later**: vector-store-backed RAG, additional LLM provider adapters wired
   to live keys, SIEM/SOAR push connectors, STIX export.

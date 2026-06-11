@@ -12,6 +12,12 @@ export default {
         offense: "#c2410c",
         defense: "#15803d",
         template: "#6b7280",
+        // Reasoning workbench extension (UIX_CONTRACT §4): the live reasoning
+        // plane's edge-classification taxonomy reuses ok/link/inferred/gap/
+        // template above for 6 of its 7 levels; "conditional" is the one
+        // genuinely new concept (a route step that only applies under a
+        // specific precondition).
+        conditional: "#0e7490",
       },
     },
   },
