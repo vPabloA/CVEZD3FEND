@@ -24,6 +24,8 @@ from CVEzD3FEND.intelligence import explain as ai_explain
 from CVEzD3FEND.models.bundle import Bundle, Route
 from CVEzD3FEND.models.graph import Node, NodeType
 from CVEzD3FEND.pipeline import run_build
+from CVEzD3FEND.reasoning import ReasoningEngine
+from CVEzD3FEND.reasoning.models import EnrichmentResult, ReasoningResult
 from CVEzD3FEND.validation.schema import validate_structure
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help=__doc__)
@@ -109,6 +111,46 @@ def _write_output(content: str, output: Optional[Path]) -> None:
         print(content)
 
 
+def _load_reasoning_engine(settings: Settings) -> ReasoningEngine:
+    return ReasoningEngine(settings)
+
+
+def _render_enrichment_result(result: EnrichmentResult, format: str) -> str:
+    if format == "json":
+        return result.model_dump_json(indent=2)
+    if format == "tree":
+        lines = [
+            f"{result.normalized_input}",
+            f"|-- status: {result.status}",
+            f"|-- source_mode: {result.source_mode}",
+            "|-- profile",
+            f"   |-- description: {result.profile.description or 'n/a'}",
+            f"   |-- cwes: {', '.join(result.profile.cwes) if result.profile.cwes else 'n/a'}",
+            f"   |-- semantic_tags: {', '.join(result.profile.semantic_tags) if result.profile.semantic_tags else 'n/a'}",
+            f"   `-- affected_products: {', '.join(result.profile.affected_products) if result.profile.affected_products else 'n/a'}",
+        ]
+        return "\n".join(lines)
+    return "\n".join(
+        [
+            f"# Enrichment for {result.normalized_input}",
+            "",
+            f"- Status: {result.status}",
+            f"- Source mode: {result.source_mode}",
+            f"- Description: {result.profile.description or 'n/a'}",
+            f"- CWEs: {', '.join(result.profile.cwes) if result.profile.cwes else 'n/a'}",
+            f"- Semantic tags: {', '.join(result.profile.semantic_tags) if result.profile.semantic_tags else 'n/a'}",
+        ]
+    )
+
+
+def _render_reasoning_result(result: ReasoningResult, format: str) -> str:
+    if format == "json":
+        return result.model_dump_json(indent=2)
+    if format == "tree":
+        return result.exports.tree
+    return result.exports.markdown
+
+
 FormatOption = typer.Option("md", "--format", "-f", help="Output format")
 OutputOption = typer.Option(None, "--output", "-o", help="Write to file instead of stdout")
 
@@ -122,6 +164,90 @@ OutputOption = typer.Option(None, "--output", "-o", help="Write to file instead 
 def version() -> None:
     """Print the CVEzD3FEND package version."""
     console.print(__version__)
+
+
+@app.command()
+def enrich(
+    cve_id: str = typer.Argument(..., help="CVE id, e.g. CVE-2025-0168"),
+    format: str = typer.Option("json", "--format", "-f", help="Output format", case_sensitive=False),
+) -> None:
+    """Fetch live/cache/static enrichment and emit a normalized CVE profile."""
+    settings = get_settings()
+    engine = _load_reasoning_engine(settings)
+    try:
+        result = engine.enrich(cve_id)
+    finally:
+        engine.close()
+    content = _render_enrichment_result(result, format.lower())
+    print(content)
+
+
+@app.command()
+def reason(
+    cve_id: str = typer.Argument(..., help="CVE id, e.g. CVE-2025-0168"),
+    format: str = typer.Option("json", "--format", "-f", help="Output format", case_sensitive=False),
+) -> None:
+    """Compute the reasoned route contract and provenance classification."""
+    settings = get_settings()
+    engine = _load_reasoning_engine(settings)
+    try:
+        result = engine.reason(cve_id)
+    finally:
+        engine.close()
+    content = _render_reasoning_result(result, format.lower())
+    print(content)
+
+
+@app.command()
+def explain(
+    cve_id: str = typer.Argument(..., help="CVE id, e.g. CVE-2025-0168"),
+) -> None:
+    """Print the Spanish defensive narrative for a CVE."""
+    settings = get_settings()
+    engine = _load_reasoning_engine(settings)
+    try:
+        console.print(engine.explain(cve_id))
+    finally:
+        engine.close()
+
+
+@app.command()
+def hunt(
+    cve_id: str = typer.Argument(..., help="CVE id, e.g. CVE-2025-0168"),
+) -> None:
+    """Print a threat-hunting brief derived from the reasoning contract."""
+    settings = get_settings()
+    engine = _load_reasoning_engine(settings)
+    try:
+        console.print(engine.hunt(cve_id))
+    finally:
+        engine.close()
+
+
+@app.command()
+def detect(
+    cve_id: str = typer.Argument(..., help="CVE id, e.g. CVE-2025-0168"),
+) -> None:
+    """Print a detection-engineering brief derived from the reasoning contract."""
+    settings = get_settings()
+    engine = _load_reasoning_engine(settings)
+    try:
+        console.print(engine.detect(cve_id))
+    finally:
+        engine.close()
+
+
+@app.command()
+def ctem(
+    cve_id: str = typer.Argument(..., help="CVE id, e.g. CVE-2025-0168"),
+) -> None:
+    """Print a CTEM-oriented prioritization brief derived from the reasoning contract."""
+    settings = get_settings()
+    engine = _load_reasoning_engine(settings)
+    try:
+        console.print(engine.ctem(cve_id))
+    finally:
+        engine.close()
 
 
 @app.command()

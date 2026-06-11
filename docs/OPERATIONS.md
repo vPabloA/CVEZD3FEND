@@ -39,6 +39,12 @@ All configuration is via environment variables (see `.env.example`), loaded by
 CVEzD3FEND build                       # full ETL + bundle + quality report
 CVEzD3FEND validate                    # structural + quality validation
 CVEzD3FEND serve                       # serve web/dist + bundle statically
+CVEzD3FEND enrich CVE-2025-0168 --format json
+CVEzD3FEND reason CVE-2025-0168 --format tree
+CVEzD3FEND explain CVE-2025-0168
+CVEzD3FEND hunt CVE-2025-0168
+CVEzD3FEND detect CVE-2025-0168
+CVEzD3FEND ctem CVE-2025-0168
 CVEzD3FEND route CVE-2026-0544         # print a route to console
 CVEzD3FEND search T1059                # search nodes
 CVEzD3FEND export route CVE-2026-0544 --format md
@@ -75,6 +81,9 @@ gate on `CVEzD3FEND validate` separately.
   or `CVEZD3FEND_TOP_ROUTES_PER_CVE`.
 - **AI commands fail**: confirm `CVEZD3FEND_AI_ENABLED=true` and a valid
   `CVEZD3FEND_AI_PROVIDER` + API key env var; `mock` always works offline.
+- **Reasoning commands are degraded**: the new `enrich`/`reason`/`explain`
+  flow is designed to keep running with cache or static fallback. Check
+  warnings in the JSON output and the API sidecar at `CVEzD3FEND api`.
 
 ## Security
 

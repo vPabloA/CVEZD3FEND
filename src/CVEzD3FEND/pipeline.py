@@ -11,10 +11,12 @@ import httpx
 from CVEzD3FEND import __version__
 from CVEzD3FEND.config import Settings
 from CVEzD3FEND.coverage.model import compute_coverage
+from CVEzD3FEND.enrichment import SourceOrchestrator
 from CVEzD3FEND.graph.builder import build_graph
 from CVEzD3FEND.graph.context import GraphContext
 from CVEzD3FEND.graph.index import build_indexes
 from CVEzD3FEND.models.bundle import Bundle, QualityReport, Warning
+from CVEzD3FEND.models.graph import NodeType
 from CVEzD3FEND.routing.routes import compute_routes
 from CVEzD3FEND.util import now_iso
 from CVEzD3FEND.validation.quality import build_quality_report
@@ -39,6 +41,8 @@ def run_build(settings: Settings, client: httpx.Client | None = None) -> tuple[B
 
     route_result = compute_routes(nodes, edges, coverage_result.coverage_by_attack, settings)
     indexes = build_indexes(nodes, edges, route_result.routes, coverage_result.coverage_by_attack)
+    build_warnings = list(result.warnings)
+    live_warnings: list[str] = []
 
     bundle = Bundle(
         bundle_version=__version__,
@@ -52,8 +56,38 @@ def run_build(settings: Settings, client: httpx.Client | None = None) -> tuple[B
         coverage=coverage_result.coverage,
         quality={},
         provenance={s.source_id: s.model_dump(mode="json") for s in result.sources},
-        warnings=[Warning(code="build_warning", message=w) for w in result.warnings],
+        warnings=[Warning(code="build_warning", message=w) for w in build_warnings],
     )
+
+    if settings.enable_live_enrichment:
+        orchestrator = SourceOrchestrator(settings)
+        try:
+            live_enrichment: dict[str, dict[str, dict]] = {}
+            cve_ids = [n.id for n in nodes if n.type == NodeType.CVE][: settings.enrichment_cache_limit]
+            for cve_id in cve_ids:
+                live_enrichment[cve_id] = {}
+                for source_name in ("nvd", "epss", "ghsa", "kev"):
+                    outcome = orchestrator.collect(source_name, cve_id, mode="live")
+                    live_enrichment[cve_id][source_name] = outcome.evidence.model_dump(mode="json")
+                    if outcome.fallback_used:
+                        warning_message = f"{source_name}:{cve_id} used cached/offline fallback"
+                        live_warnings.append(warning_message)
+                        bundle.warnings.append(
+                            Warning(
+                                code="live_enrichment_fallback",
+                                message=warning_message,
+                                context={
+                                    "source": source_name,
+                                    "input": cve_id,
+                                    "status": outcome.evidence.status,
+                                    "from_cache": outcome.from_cache,
+                                },
+                            )
+                        )
+            bundle.provenance["live_enrichment"] = live_enrichment
+            bundle.provenance["live_enrichment_sources"] = orchestrator.available()
+        finally:
+            orchestrator.close()
 
     fatal_errors = validate_structure(bundle)
     quality_report = build_quality_report(
@@ -64,7 +98,7 @@ def run_build(settings: Settings, client: httpx.Client | None = None) -> tuple[B
         framework_routes_total=route_result.framework_routes_total,
         framework_routes_emitted=route_result.framework_routes_emitted,
         fatal_errors=fatal_errors,
-        raw_warnings=result.warnings,
+        raw_warnings=[*build_warnings, *live_warnings],
     )
     bundle.quality = quality_report.model_dump(mode="json")
     return bundle, quality_report

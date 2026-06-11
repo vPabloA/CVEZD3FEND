@@ -30,10 +30,15 @@ class FetchResult:
     fetched_at: str = field(default_factory=now_iso)
 
 
-def fetch_url(client: httpx.Client, url: str, settings: Settings) -> FetchResult:
+def fetch_url(
+    client: httpx.Client,
+    url: str,
+    settings: Settings,
+    headers: dict[str, str] | None = None,
+) -> FetchResult:
     """Fetch ``url`` with timeout + max-size enforcement. Never raises."""
     try:
-        with client.stream("GET", url, timeout=settings.http_timeout_seconds) as resp:
+        with client.stream("GET", url, timeout=settings.http_timeout_seconds, headers=headers) as resp:
             if resp.status_code >= 400:
                 return FetchResult(
                     ok=False,
