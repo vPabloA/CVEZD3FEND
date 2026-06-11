@@ -1,11 +1,10 @@
 import type { ReasoningNarrative } from "@/lib/reasoningTypes";
 
 const SECTIONS: { key: keyof ReasoningNarrative; label: string }[] = [
-  { key: "executive_summary_es", label: "Executive summary" },
-  { key: "summary_es", label: "Summary" },
-  { key: "decision_context_es", label: "Decision context" },
-  { key: "risk_rationale_es", label: "Risk rationale" },
-  { key: "tier1_conclusion_es", label: "Tier 1 conclusion" },
+  { key: "executive_summary_es", label: "Narrativa" },
+  { key: "summary_es", label: "Ruta" },
+  { key: "decision_context_es", label: "Por qué importa" },
+  { key: "risk_rationale_es", label: "Confianza y riesgo" },
 ];
 
 /**
@@ -18,14 +17,14 @@ export default function NarrativePanel({ narrative }: { narrative: ReasoningNarr
   if (sections.length === 0) {
     return (
       <section className="rounded-md border border-slate-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-slate-700">Reasoning summary</h2>
+        <h2 className="text-sm font-semibold text-slate-700">Narrativa</h2>
         <p className="mt-2 text-sm italic text-slate-400">No narrative available for this CVE.</p>
       </section>
     );
   }
   return (
     <section className="flex flex-col gap-3 rounded-md border border-slate-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-slate-700">Reasoning summary</h2>
+      <h2 className="text-sm font-semibold text-slate-700">Narrativa</h2>
       <div className="flex flex-col gap-3">
         {sections.map(({ key, label }) => (
           <div key={key}>

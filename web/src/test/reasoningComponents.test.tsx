@@ -44,8 +44,23 @@ describe("AiReasoningActions", () => {
     expect(api.proposeRoute).toHaveBeenCalledWith("CVE-2024-0001");
 
     await userEvent.click(screen.getByRole("button", { name: /validate route/i }));
-    expect(await screen.findByText("Validation result")).toBeInTheDocument();
+    expect(await screen.findByText("Route Validation")).toBeInTheDocument();
     expect(api.validateRoute).toHaveBeenCalledWith("CVE-2024-0001");
+  });
+
+  it("promotes only the selected review edge through one governed control", async () => {
+    const onPromote = vi.fn();
+    const edges = makeReasoningResult().edges;
+
+    render(<AiReasoningActions cveId="CVE-2024-0001" apiAvailable reviewer="alice" edges={edges} onPromote={onPromote} />);
+
+    const promoteButton = screen.getByRole("button", { name: /promote selected edge/i });
+    expect(promoteButton).toBeEnabled();
+    expect(screen.getByRole("combobox", { name: /edge to promote/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /promote selected edge/i })).toHaveLength(1);
+
+    await userEvent.click(promoteButton);
+    expect(onPromote).toHaveBeenCalledWith("edge-2");
   });
 });
 

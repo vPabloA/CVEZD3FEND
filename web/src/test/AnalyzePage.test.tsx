@@ -91,16 +91,22 @@ describe("AnalyzePage", () => {
 
     // Header / status
     expect(await screen.findByRole("heading", { name: "CVE-2024-0001" })).toBeInTheDocument();
-    expect(screen.getByText("ok")).toBeInTheDocument();
+    expect(screen.getAllByText("ok").length).toBeGreaterThan(0);
     expect(screen.getByText(/^Live$/)).toBeInTheDocument();
 
-    // Narrative (Reasoning Summary)
-    expect(screen.getByText("Reasoning summary")).toBeInTheDocument();
+    // Graph-centered single pane
+    expect(screen.getByText("Interactive Knowledge Graph")).toBeInTheDocument();
+    expect(screen.getByText("Ruta activa")).toBeInTheDocument();
+    expect(screen.getByText("Route navigator")).toBeInTheDocument();
+    expect(screen.getByText("Evidencia / Advanced details")).toBeInTheDocument();
+
+    // Narrative
+    expect(screen.getAllByText("Narrativa").length).toBeGreaterThan(0);
     expect(screen.getByText(/inyección SQL remota/)).toBeInTheDocument();
 
     // Risk summary — KEV listed pushes overall level to Critical
     expect(screen.getByText("Risk summary")).toBeInTheDocument();
-    expect(screen.getByText("Critical")).toBeInTheDocument();
+    expect(screen.getAllByText(/Critical/).length).toBeGreaterThan(0);
 
     // Route contract buckets
     const routeSection = screen.getByText("Route contract").closest("section")!;
@@ -110,8 +116,8 @@ describe("AnalyzePage", () => {
     // Reasoning trace edges with classification badges
     expect(screen.getByText(/Reasoning trace/)).toBeInTheDocument();
     expect(screen.getAllByText("Official").length).toBeGreaterThan(0);
-    expect(screen.getByText("Analytical (AI)")).toBeInTheDocument();
-    expect(screen.getByText("Conditional")).toBeInTheDocument();
+    expect(screen.getAllByText("Analytical (AI)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Conditional").length).toBeGreaterThan(0);
 
     // Provenance ledger
     const provenanceSection = screen.getByText("Provenance ledger").closest("section")!;
@@ -119,7 +125,7 @@ describe("AnalyzePage", () => {
 
     // SOC / Detection / Hunting / CTEM
     expect(screen.getByText("SOC Action Pack")).toBeInTheDocument();
-    expect(screen.getByText("Isolate affected host from the network")).toBeInTheDocument();
+    expect(screen.getAllByText("Isolate affected host from the network").length).toBeGreaterThan(0);
     expect(screen.getByText("Detection engineering")).toBeInTheDocument();
     expect(screen.getByText("Alert on UNION SELECT in HTTP parameters")).toBeInTheDocument();
     expect(screen.getByText("Threat hunting")).toBeInTheDocument();
@@ -130,9 +136,9 @@ describe("AnalyzePage", () => {
     expect(screen.getByText("Exports")).toBeInTheDocument();
     expect(screen.getByText("Markdown report")).toBeInTheDocument();
 
-    // Graph navigator placeholder reserves the next-iteration position
-    expect(screen.getByText("Architectural graph navigator")).toBeInTheDocument();
-    expect(screen.getByText("Next iteration")).toBeInTheDocument();
+    // Promotion is governed from one compact review control, not repeated under every edge.
+    expect(screen.getByRole("button", { name: /promote selected edge/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /promote to canonical/i })).not.toBeInTheDocument();
   });
 
   it("shows the human-review banner only when human_review.required is true", async () => {
@@ -145,7 +151,7 @@ describe("AnalyzePage", () => {
     renderAnalyze();
 
     const banner = await screen.findByRole("alert");
-    expect(banner).toHaveTextContent(/human review required/i);
+    expect(banner).toHaveTextContent(/requiere revisión/i);
     expect(banner).toHaveTextContent("Conditional edges need analyst confirmation.");
   });
 
@@ -156,8 +162,8 @@ describe("AnalyzePage", () => {
 
     renderAnalyze();
 
-    await screen.findByText("Reasoning summary");
-    expect(screen.queryByText(/human review required/i)).not.toBeInTheDocument();
+    await screen.findByText("Interactive Knowledge Graph");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("warns honestly when the API is reachable but the reasoning plane is unavailable", async () => {
