@@ -29,6 +29,7 @@ from CVEzD3FEND.intelligence.providers.base import ProviderError
 from CVEzD3FEND.lookup import node_summary, resolve_attack_id, resolve_route, search_nodes
 from CVEzD3FEND.models.bundle import Bundle
 from CVEzD3FEND.models.graph import NodeType
+from CVEzD3FEND.reasoning import ReasoningEngine
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +64,15 @@ class GenerateCandidatesRequest(BaseModel):
 
 class ReviewerRequest(BaseModel):
     reviewer: str
+
+
+class CVERequest(BaseModel):
+    cve_id: str
+
+
+class PromoteEdgeRequest(BaseModel):
+    edge_id: str
+    reviewer: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -135,9 +145,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "route_count": len(bundle.routes),
             "sources": [s.model_dump(mode="json") for s in bundle.sources],
             "enrichment_sources": available_sources(),
+            "reasoning_available": True,
             "quality": bundle.quality,
             "coverage_summary": bundle.coverage.summary.model_dump(mode="json"),
         }
+
+    def _reasoning_engine() -> ReasoningEngine:
+        return ReasoningEngine(settings)
 
     @app.get("/api/evidence/{source_name}")
     def get_evidence(
@@ -160,6 +174,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "fallback_used": result.fallback_used,
             "evidence": result.evidence.model_dump(mode="json"),
         }
+
+    @app.get("/api/enrich/{cve_id}")
+    def enrich_cve(cve_id: str) -> dict:
+        engine = _reasoning_engine()
+        try:
+            result = engine.enrich(cve_id)
+            return result.model_dump(mode="json")
+        finally:
+            engine.close()
+
+    @app.get("/api/reason/{cve_id}")
+    def reason_cve(cve_id: str) -> dict:
+        engine = _reasoning_engine()
+        try:
+            result = engine.reason(cve_id)
+            return result.model_dump(mode="json")
+        finally:
+            engine.close()
+
+    @app.get("/api/provenance/{cve_id}")
+    def provenance_cve(cve_id: str) -> dict:
+        engine = _reasoning_engine()
+        try:
+            result = engine.reason(cve_id)
+            return {"input": cve_id, "normalized_input": result.normalized_input, "provenance": {k: [e.model_dump(mode="json") for e in v] for k, v in result.provenance.items()}}
+        finally:
+            engine.close()
+
+    @app.post("/api/ai/propose-route")
+    def propose_route(req: CVERequest) -> dict:
+        engine = _reasoning_engine()
+        try:
+            return engine.propose_route(req.cve_id)
+        finally:
+            engine.close()
+
+    @app.post("/api/ai/validate-route")
+    def validate_route(req: CVERequest) -> dict:
+        engine = _reasoning_engine()
+        try:
+            return engine.validate_route(req.cve_id)
+        finally:
+            engine.close()
+
+    @app.post("/api/review/promote-edge")
+    def promote_edge(req: PromoteEdgeRequest) -> dict:
+        if not req.reviewer:
+            raise HTTPException(status_code=400, detail="reviewer required")
+        engine = _reasoning_engine()
+        try:
+            return engine.promote_edge(req.edge_id, req.reviewer)
+        finally:
+            engine.close()
 
     # -- Search / nodes ------------------------------------------------------
 

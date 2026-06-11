@@ -171,6 +171,19 @@ def fetch_cve2capec(client: httpx.Client, settings: Settings, input_value: str) 
     )
 
 
+def _extract_nvd_reference_urls(cve: dict[str, Any]) -> list[str]:
+    references = cve.get("references", {})
+    if isinstance(references, list):
+        return [item.get("url") for item in references if isinstance(item, dict) and item.get("url")]
+    if isinstance(references, dict):
+        return [
+            item.get("url")
+            for item in references.get("referenceData", [])
+            if isinstance(item, dict) and item.get("url")
+        ]
+    return []
+
+
 def fetch_nvd(client: httpx.Client, settings: Settings, input_value: str) -> NormalizedEvidence:
     url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={input_value}"
     headers = {"User-Agent": "CVEzD3FEND-enrichment/1.0"}
@@ -184,7 +197,7 @@ def fetch_nvd(client: httpx.Client, settings: Settings, input_value: str) -> Nor
     vulns = payload.get("vulnerabilities", []) or []
     cve = best_of([v.get("cve") for v in vulns if isinstance(v, dict)], {})
     descriptions = [d.get("value") for d in cve.get("descriptions", []) if isinstance(d, dict)]
-    refs = [r.get("url") for r in cve.get("references", {}).get("referenceData", []) if isinstance(r, dict)]
+    refs = _extract_nvd_reference_urls(cve)
     weaknesses = [
         w.get("description", [{}])[0].get("value")
         for w in cve.get("weaknesses", [])
