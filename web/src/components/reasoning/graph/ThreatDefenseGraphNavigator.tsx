@@ -8,6 +8,7 @@ import GraphInspector from "./GraphInspector";
 import GraphLegend from "./GraphLegend";
 import type { GraphLinkData, GraphMode, GraphNodeData, GraphSelection } from "./graphTypes";
 import { buildHighlightState } from "./pathHighlighting";
+import { graphLinkSourceId, graphLinkTargetId } from "./graphRuntime";
 import type { ReasoningEdgeClassification, ReasoningResult } from "@/lib/reasoningTypes";
 
 const DEFAULT_CLASSIFICATIONS: ReasoningEdgeClassification[] = [
@@ -20,8 +21,8 @@ const DEFAULT_CLASSIFICATIONS: ReasoningEdgeClassification[] = [
   "unverified",
 ];
 
-type RenderedNode = GraphNodeData & { highlighted: boolean; focused: boolean };
-type RenderedLink = GraphLinkData & { highlighted: boolean; focused: boolean };
+type RenderedNode = GraphNodeData & { highlighted: boolean; focused: boolean; mitigation: boolean };
+type RenderedLink = GraphLinkData & { highlighted: boolean; focused: boolean; mitigation: boolean };
 
 function classificationColor(classification: ReasoningEdgeClassification): string {
   switch (classification) {
@@ -59,6 +60,12 @@ function nodeRadius(node: GraphNodeData): number {
   return 6;
 }
 
+function hasFullRoute(chain: string[], nodes: GraphNodeData[]): boolean {
+  if (chain.length < 5) return false;
+  const routeKinds = new Set(nodes.filter((node) => chain.includes(node.id)).map((node) => node.kind));
+  return ["cve", "cwe", "capec", "attack", "defend"].every((kind) => routeKinds.has(kind as GraphNodeData["kind"]));
+}
+
 export default function ThreatDefenseGraphNavigator({
   result,
   selection,
@@ -72,7 +79,7 @@ export default function ThreatDefenseGraphNavigator({
   onSelectEdge: (edgeId: string) => void;
   onClearSelection: () => void;
 }) {
-  const fgRef = useRef<ForceGraphMethods<GraphNodeData, GraphLinkData> | undefined>(undefined);
+  const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const [mode, setMode] = useState<GraphMode>("focused-route");
   const [classificationFilters, setClassificationFilters] = useState<Set<ReasoningEdgeClassification>>(new Set(DEFAULT_CLASSIFICATIONS));
   const [stabilized, setStabilized] = useState(false);
@@ -92,15 +99,16 @@ export default function ThreatDefenseGraphNavigator({
         ...link,
         highlighted: highlights.highlightedLinks.has(link.id),
         focused: highlights.focusedLinks.has(link.id),
+        mitigation: highlights.mitigationLinks.has(link.id),
       })) as RenderedLink[],
-    [classificationFilters, graph.links, highlights.focusedLinks, highlights.highlightedLinks]
+    [classificationFilters, graph.links, highlights.focusedLinks, highlights.highlightedLinks, highlights.mitigationLinks]
   );
 
   const renderedNodes = useMemo(() => {
     const visibleIds = new Set<string>();
     renderedLinks.forEach((link) => {
-      visibleIds.add(link.source);
-      visibleIds.add(link.target);
+      visibleIds.add(graphLinkSourceId(link));
+      visibleIds.add(graphLinkTargetId(link));
     });
     graph.nodes.forEach((node) => {
       if (visibleIds.size === 0 || visibleIds.has(node.id) || highlights.highlightedNodes.has(node.id)) {
@@ -113,8 +121,33 @@ export default function ThreatDefenseGraphNavigator({
         ...node,
         highlighted: highlights.highlightedNodes.has(node.id),
         focused: highlights.focusedNodes.has(node.id),
+        mitigation: highlights.mitigationNodes.has(node.id),
       })) as RenderedNode[];
-  }, [graph.nodes, highlights.focusedNodes, highlights.highlightedNodes, renderedLinks]);
+  }, [graph.nodes, highlights.focusedNodes, highlights.highlightedNodes, highlights.mitigationNodes, renderedLinks]);
+
+  const selectedNodeVisible = selection?.kind === "node" ? renderedNodes.some((node) => node.id === selection.id) : true;
+  const selectedEdgeVisible = selection?.kind === "edge" ? renderedLinks.some((link) => link.id === selection.id) : true;
+  const selectedHidden = Boolean(selection && (!selectedNodeVisible || !selectedEdgeVisible));
+  const stateNotices = useMemo(() => {
+    const notices: { tone: "info" | "warning"; text: string }[] = [];
+    if (graph.nodes.length === 0 && result.errors.length > 0) {
+      notices.push({ tone: "warning", text: "Graph data is unavailable for this CVE. Review the API status and try Analyze again." });
+    } else if (graph.nodes.length === 0) {
+      notices.push({ tone: "info", text: "No graphable route was produced for this CVE." });
+    } else if (graph.links.length === 0) {
+      notices.push({ tone: "info", text: "No graphable relationships were produced yet. Evidence is still available in the drawer." });
+    }
+
+    if (graph.nodes.length > 0 && !hasFullRoute(graph.routeChain, graph.nodes)) {
+      notices.push({ tone: "info", text: "This route is partial. Defensive intent is available, but no canonical CWE/CAPEC chain was found." });
+    }
+
+    if (selectedHidden) {
+      notices.push({ tone: "warning", text: selection?.kind === "edge" ? "The selected edge is hidden by the current filters." : "The selected node is hidden by the current filters." });
+    }
+
+    return notices.slice(0, 3);
+  }, [graph.links.length, graph.nodes, graph.routeChain, result.errors.length, selectedHidden, selection?.kind]);
 
   const fitView = () => {
     fgRef.current?.zoomToFit?.(350, 40);
@@ -146,6 +179,11 @@ export default function ThreatDefenseGraphNavigator({
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
             <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1">{graph.nodes.length} nodes</span>
             <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1">{graph.links.length} edges</span>
+            {mode === "mitigation-path" && (
+              <span className="rounded-full border border-defense bg-green-50 px-2 py-1 font-semibold text-defense">
+                Mitigation path
+              </span>
+            )}
             <span className={`rounded-full border px-2 py-1 ${result.human_review.required ? "border-amber-400 bg-amber-50 text-amber-800" : "border-ok bg-green-50 text-ok"}`}>
               {result.human_review.required ? "Human review required" : "Route validated"}
             </span>
@@ -158,6 +196,23 @@ export default function ThreatDefenseGraphNavigator({
 
       <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="flex min-h-[38rem] flex-col gap-3 border-r border-slate-800/80 p-3">
+          {stateNotices.length > 0 && (
+            <div className="grid gap-2">
+              {stateNotices.map((notice) => (
+                <div
+                  key={notice.text}
+                  className={`rounded-xl border px-3 py-2 text-sm ${
+                    notice.tone === "warning"
+                      ? "border-amber-400/50 bg-amber-950/30 text-amber-100"
+                      : "border-sky-500/30 bg-sky-950/30 text-sky-100"
+                  }`}
+                >
+                  {notice.text}
+                </div>
+              ))}
+            </div>
+          )}
+
           <GraphControls
             mode={mode}
             onModeChange={setMode}
@@ -192,22 +247,26 @@ export default function ThreatDefenseGraphNavigator({
               d3VelocityDecay={0.35}
               linkColor={(link) => {
                 const typed = link as RenderedLink;
+                if (typed.mitigation && mode === "mitigation-path") return COLORS.defense;
                 if (typed.focused) return COLORS.ok;
                 if (typed.highlighted) return classificationColor(typed.classification);
                 return `${classificationColor(typed.classification)}88`;
               }}
               linkWidth={(link) => {
                 const typed = link as RenderedLink;
+                if (typed.mitigation && mode === "mitigation-path") return typed.focused ? 4.2 : 3.4;
                 return typed.focused ? 2.6 : typed.highlighted ? 1.8 : 1.0;
               }}
               linkVisibility={(link) => classificationFilters.has((link as GraphLinkData).classification)}
               linkDirectionalArrowLength={(link) => {
                 const typed = link as RenderedLink;
+                if (typed.mitigation && mode === "mitigation-path") return 6;
                 return typed.highlighted ? 4.5 : 3.2;
               }}
               linkDirectionalArrowRelPos={1}
               linkDirectionalParticles={(link) => {
                 const typed = link as RenderedLink;
+                if (typed.mitigation && mode === "mitigation-path") return 4;
                 return typed.focused ? 3 : typed.highlighted ? 1 : 0;
               }}
               linkDirectionalParticleWidth={() => 1.4}
@@ -226,9 +285,12 @@ export default function ThreatDefenseGraphNavigator({
               }}
               linkLabel={(link) => {
                 const typed = link as RenderedLink;
+                const sourceId = graphLinkSourceId(typed);
+                const targetId = graphLinkTargetId(typed);
                 return [
-                  `${typed.source} → ${typed.target}`,
+                  `${sourceId} → ${targetId}`,
                   REASONING_CLASSIFICATION_LABELS[typed.classification],
+                  typed.mitigation ? "Mitigation path: attack reasoning to defensive action" : null,
                   `Confidence: ${typed.confidence.toFixed(2)}`,
                   typed.note ?? null,
                 ]
@@ -241,7 +303,7 @@ export default function ThreatDefenseGraphNavigator({
               }}
               onLinkClick={(link) => {
                 const typed = link as GraphLinkData;
-                onSelectNode(typed.source);
+                onSelectNode(graphLinkSourceId(typed));
                 onSelectEdge(typed.id);
               }}
               onBackgroundClick={() => clearSelection()}
@@ -253,21 +315,22 @@ export default function ThreatDefenseGraphNavigator({
                 const radius = nodeRadius(typed);
                 const fill = nodeColor(typed);
                 const highlight = typed.focused || typed.highlighted || selection?.kind === "node" && selection.id === typed.id;
+                const mitigation = typed.mitigation && mode === "mitigation-path";
 
                 ctx.save();
                 ctx.beginPath();
-                ctx.arc(x, y, radius + (highlight ? 2.2 : 0.8), 0, Math.PI * 2);
-                ctx.fillStyle = highlight ? `${fill}33` : "rgba(15, 23, 42, 0.12)";
+                ctx.arc(x, y, radius + (mitigation ? 4.2 : highlight ? 2.2 : 0.8), 0, Math.PI * 2);
+                ctx.fillStyle = mitigation ? `${COLORS.defense}44` : highlight ? `${fill}33` : "rgba(15, 23, 42, 0.12)";
                 ctx.fill();
                 ctx.beginPath();
                 ctx.arc(x, y, radius, 0, Math.PI * 2);
                 ctx.fillStyle = fill;
-                ctx.shadowBlur = highlight ? 18 : 10;
-                ctx.shadowColor = fill;
+                ctx.shadowBlur = mitigation ? 26 : highlight ? 18 : 10;
+                ctx.shadowColor = mitigation ? COLORS.defense : fill;
                 ctx.fill();
                 ctx.shadowBlur = 0;
-                ctx.lineWidth = highlight ? 2 : 1;
-                ctx.strokeStyle = highlight ? "#f8fafc" : "#0f172a";
+                ctx.lineWidth = mitigation ? 2.5 : highlight ? 2 : 1;
+                ctx.strokeStyle = mitigation ? COLORS.defense : highlight ? "#f8fafc" : "#0f172a";
                 ctx.stroke();
                 ctx.restore();
               }}
@@ -283,7 +346,7 @@ export default function ThreatDefenseGraphNavigator({
 
             <div className="pointer-events-none absolute inset-x-3 bottom-3 flex flex-wrap items-center justify-between gap-2">
               <div className="rounded-full border border-slate-800 bg-slate-950/90 px-3 py-1 text-[11px] text-slate-300 backdrop-blur">
-                {selection?.kind === "edge" ? "Edge focus" : selection?.kind === "node" ? "Node focus" : "Route focus"}
+                {mode === "mitigation-path" ? "Mitigation path focus" : selection?.kind === "edge" ? "Edge focus" : selection?.kind === "node" ? "Node focus" : "Route focus"}
               </div>
               <div className="rounded-full border border-slate-800 bg-slate-950/90 px-3 py-1 text-[11px] text-slate-300 backdrop-blur">
                 {stabilized ? "Simulation stable" : "Simulation stabilizing"}
@@ -302,6 +365,8 @@ export default function ThreatDefenseGraphNavigator({
             nodes={renderedNodes}
             links={renderedLinks}
             resultEdges={result.edges}
+            mitigationNodeIds={highlights.mitigationNodes}
+            mitigationLinkIds={highlights.mitigationLinks}
             onFocusNode={(nodeId) => onSelectNode(nodeId)}
             onFocusEdge={(edgeId) => onSelectEdge(edgeId)}
             onClearSelection={clearSelection}

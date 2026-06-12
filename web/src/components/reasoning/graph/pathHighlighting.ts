@@ -1,21 +1,26 @@
 import type { GraphLinkData, GraphModel, GraphNodeData, GraphSelection } from "./graphTypes";
+import { graphLinkSourceId, graphLinkTargetId, isDefensiveGraphNode } from "./graphRuntime";
 
 export interface HighlightState {
   highlightedNodes: Set<string>;
   highlightedLinks: Set<string>;
   focusedNodes: Set<string>;
   focusedLinks: Set<string>;
+  mitigationNodes: Set<string>;
+  mitigationLinks: Set<string>;
 }
 
 function buildAdjacency(links: GraphLinkData[]): Map<string, Set<string>> {
   const adjacency = new Map<string, Set<string>>();
   links.forEach((link) => {
-    const source = adjacency.get(link.source) ?? new Set<string>();
-    const target = adjacency.get(link.target) ?? new Set<string>();
-    source.add(link.target);
-    target.add(link.source);
-    adjacency.set(link.source, source);
-    adjacency.set(link.target, target);
+    const sourceId = graphLinkSourceId(link);
+    const targetId = graphLinkTargetId(link);
+    const source = adjacency.get(sourceId) ?? new Set<string>();
+    const target = adjacency.get(targetId) ?? new Set<string>();
+    source.add(targetId);
+    target.add(sourceId);
+    adjacency.set(sourceId, source);
+    adjacency.set(targetId, target);
   });
   return adjacency;
 }
@@ -51,10 +56,13 @@ function canonicalPathSegments(chain: string[]): Set<string> {
 
 export function buildHighlightState(model: GraphModel, selection: GraphSelection, mode: string): HighlightState {
   const adjacency = buildAdjacency(model.links);
+  const nodesById = new Map(model.nodes.map((node) => [node.id, node]));
   const highlightedNodes = new Set<string>();
   const highlightedLinks = new Set<string>();
   const focusedNodes = new Set<string>();
   const focusedLinks = new Set<string>();
+  const mitigationNodes = new Set<string>();
+  const mitigationLinks = new Set<string>();
 
   const seedNodes = new Set<string>(model.routeChain);
   if (selection?.kind === "node") {
@@ -62,9 +70,25 @@ export function buildHighlightState(model: GraphModel, selection: GraphSelection
   } else if (selection?.kind === "edge") {
     const link = model.links.find((item) => item.id === selection.id);
     if (link) {
-      seedNodes.add(link.source);
-      seedNodes.add(link.target);
+      seedNodes.add(graphLinkSourceId(link));
+      seedNodes.add(graphLinkTargetId(link));
     }
+  }
+
+  model.links.forEach((link) => {
+    if (!isMitigationLink(link, model.nodes)) return;
+    const sourceId = graphLinkSourceId(link);
+    const targetId = graphLinkTargetId(link);
+    mitigationLinks.add(link.id);
+    mitigationNodes.add(sourceId);
+    mitigationNodes.add(targetId);
+    adjacency.get(sourceId)?.forEach((neighbor) => {
+      if (isDefensiveGraphNode(nodesById.get(neighbor)) || isDefensiveGraphNode(nodesById.get(targetId))) mitigationNodes.add(neighbor);
+    });
+  });
+
+  if (mode === "mitigation-path") {
+    mitigationNodes.forEach((id) => seedNodes.add(id));
   }
 
   const modeDepth = mode === "full-traceability" ? 3 : mode === "reasoning-neighborhood" ? 2 : mode === "mitigation-path" ? 2 : 1;
@@ -73,19 +97,28 @@ export function buildHighlightState(model: GraphModel, selection: GraphSelection
   });
 
   model.links.forEach((link) => {
-    const nodeVisible = highlightedNodes.has(link.source) && highlightedNodes.has(link.target);
-    const canonical = canonicalPathSegments(model.routeChain).has(`${link.source}→${link.target}`);
-    if (nodeVisible || canonical) {
+    const sourceId = graphLinkSourceId(link);
+    const targetId = graphLinkTargetId(link);
+    const nodeVisible = highlightedNodes.has(sourceId) && highlightedNodes.has(targetId);
+    const canonical = canonicalPathSegments(model.routeChain).has(`${sourceId}→${targetId}`);
+    if (nodeVisible || canonical || (mode === "mitigation-path" && mitigationLinks.has(link.id))) {
       highlightedLinks.add(link.id);
     }
   });
+
+  if (mode === "mitigation-path") {
+    mitigationNodes.forEach((id) => highlightedNodes.add(id));
+    mitigationLinks.forEach((id) => highlightedLinks.add(id));
+  }
 
   if (selection?.kind === "node") {
     focusedNodes.add(selection.id);
     adjacency.get(selection.id)?.forEach((neighbor) => {
       focusedNodes.add(neighbor);
       model.links.forEach((link) => {
-        if ((link.source === selection.id && link.target === neighbor) || (link.target === selection.id && link.source === neighbor)) {
+        const sourceId = graphLinkSourceId(link);
+        const targetId = graphLinkTargetId(link);
+        if ((sourceId === selection.id && targetId === neighbor) || (targetId === selection.id && sourceId === neighbor)) {
           focusedLinks.add(link.id);
         }
       });
@@ -95,15 +128,17 @@ export function buildHighlightState(model: GraphModel, selection: GraphSelection
   if (selection?.kind === "edge") {
     const link = model.links.find((item) => item.id === selection.id);
     if (link) {
-      focusedNodes.add(link.source);
-      focusedNodes.add(link.target);
+      const sourceId = graphLinkSourceId(link);
+      const targetId = graphLinkTargetId(link);
+      focusedNodes.add(sourceId);
+      focusedNodes.add(targetId);
       focusedLinks.add(link.id);
-      adjacency.get(link.source)?.forEach((neighbor) => focusedNodes.add(neighbor));
-      adjacency.get(link.target)?.forEach((neighbor) => focusedNodes.add(neighbor));
+      adjacency.get(sourceId)?.forEach((neighbor) => focusedNodes.add(neighbor));
+      adjacency.get(targetId)?.forEach((neighbor) => focusedNodes.add(neighbor));
     }
   }
 
-  return { highlightedNodes, highlightedLinks, focusedNodes, focusedLinks };
+  return { highlightedNodes, highlightedLinks, focusedNodes, focusedLinks, mitigationNodes, mitigationLinks };
 }
 
 export function visibleNodeIdsForModel(model: GraphModel, selection: GraphSelection, mode: string): Set<string> {
@@ -112,7 +147,7 @@ export function visibleNodeIdsForModel(model: GraphModel, selection: GraphSelect
 }
 
 export function isMitigationLink(link: Pick<GraphLinkData, "source" | "target" | "classification">, nodes: GraphNodeData[]): boolean {
-  const source = nodes.find((node) => node.id === link.source);
-  const target = nodes.find((node) => node.id === link.target);
-  return Boolean(source && target && source.kind !== "defend" && target.kind === "defend");
+  const source = nodes.find((node) => node.id === graphLinkSourceId(link));
+  const target = nodes.find((node) => node.id === graphLinkTargetId(link));
+  return Boolean(source && target && !isDefensiveGraphNode(source) && isDefensiveGraphNode(target));
 }

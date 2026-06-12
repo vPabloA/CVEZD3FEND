@@ -34,10 +34,12 @@ export interface GraphNodeData {
   fy?: number;
 }
 
+export type GraphEndpoint = string | number | Pick<GraphNodeData, "id">;
+
 export interface GraphLinkData {
   id: string;
-  source: string;
-  target: string;
+  source: GraphEndpoint;
+  target: GraphEndpoint;
   type: string;
   label: string;
   classification: ReasoningEdgeClassification;

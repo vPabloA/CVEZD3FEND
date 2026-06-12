@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { REASONING_CLASSIFICATION_LABELS, classificationClass, classificationNeedsReview } from "@/lib/colors";
 import { buildOfficialUrl } from "./officialUrlBuilder";
+import { graphLinkSourceId, graphLinkTargetId } from "./graphRuntime";
 import type { GraphLinkData, GraphNodeData, GraphSelection } from "./graphTypes";
 import type { ReasoningEdge } from "@/lib/reasoningTypes";
 
@@ -21,6 +22,8 @@ export default function GraphInspector({
   nodes,
   links,
   resultEdges,
+  mitigationNodeIds,
+  mitigationLinkIds,
   onFocusNode,
   onFocusEdge,
   onClearSelection,
@@ -29,19 +32,27 @@ export default function GraphInspector({
   nodes: GraphNodeData[];
   links: GraphLinkData[];
   resultEdges: ReasoningEdge[];
+  mitigationNodeIds: Set<string>;
+  mitigationLinkIds: Set<string>;
   onFocusNode: (nodeId: string) => void;
   onFocusEdge: (edgeId: string) => void;
   onClearSelection: () => void;
 }) {
   const selectedNode = selection?.kind === "node" ? nodes.find((node) => node.id === selection.id) ?? null : null;
   const selectedLink = selection?.kind === "edge" ? links.find((link) => link.id === selection.id) ?? null : null;
+  const hiddenSelection = Boolean(selection && !selectedNode && !selectedLink);
+  const officialNodeUrl = selectedNode ? selectedNode.officialUrl ?? buildOfficialUrl(selectedNode.id) : null;
+  const selectedLinkSourceId = selectedLink ? graphLinkSourceId(selectedLink) : "";
+  const selectedLinkTargetId = selectedLink ? graphLinkTargetId(selectedLink) : "";
+  const selectedNodeMitigation = Boolean(selectedNode && mitigationNodeIds.has(selectedNode.id));
+  const selectedLinkMitigation = Boolean(selectedLink && mitigationLinkIds.has(selectedLink.id));
 
   return (
     <aside className="flex h-full min-h-[18rem] flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950/80 p-4 text-slate-200">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Inspector</p>
-          <h3 className="mt-1 text-sm font-semibold text-slate-100">{selectedLink ? "Selected edge" : selectedNode ? "Selected node" : "No selection"}</h3>
+          <h3 className="mt-1 text-sm font-semibold text-slate-100">{selectedLink ? "Selected edge" : selectedNode ? "Selected node" : hiddenSelection ? "Selection hidden" : "No selection"}</h3>
         </div>
         {selection && (
           <button
@@ -61,6 +72,12 @@ export default function GraphInspector({
         </p>
       )}
 
+      {hiddenSelection && (
+        <div className="rounded-xl border border-amber-400/50 bg-amber-950/30 p-3 text-sm text-amber-100">
+          {selection?.kind === "edge" ? "The selected edge is hidden by the current filters." : "The selected node is hidden by the current filters."} Reset filters or return to the route focus.
+        </div>
+      )}
+
       {selectedNode && (
         <div className="flex flex-1 flex-col gap-3">
           <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
@@ -71,8 +88,14 @@ export default function GraphInspector({
                 {selectedNode.routeRole}
               </span>
               {selectedNode.reviewRequired && <span className="rounded-full border border-amber-400 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Review</span>}
+              {selectedNodeMitigation && <span className="rounded-full border border-defense bg-green-50 px-2 py-0.5 text-[11px] font-semibold text-defense">Mitigation</span>}
             </div>
             <p className="mt-2 text-sm leading-relaxed text-slate-300">{selectedNode.description}</p>
+            {selectedNodeMitigation && (
+              <p className="mt-2 rounded-lg border border-defense/40 bg-green-950/30 px-2 py-1.5 text-sm text-green-100">
+                Mitigation relevance: this node participates in the path from attack reasoning to defensive action.
+              </p>
+            )}
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
               <button
                 type="button"
@@ -94,9 +117,9 @@ export default function GraphInspector({
               >
                 Open detail
               </Link>
-              {(selectedNode.officialUrl ?? buildOfficialUrl(selectedNode.id)) && (
+              {officialNodeUrl && (
                 <a
-                  href={selectedNode.officialUrl ?? buildOfficialUrl(selectedNode.id) ?? undefined}
+                  href={officialNodeUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="rounded-full border border-slate-700 bg-slate-950 px-2 py-1 text-slate-300 hover:border-link hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-link"
@@ -167,16 +190,22 @@ export default function GraphInspector({
         <div className="flex flex-1 flex-col gap-3">
           <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-base font-semibold text-slate-100">{selectedLink.source} → {selectedLink.target}</span>
+              <span className="font-mono text-base font-semibold text-slate-100">{selectedLinkSourceId} → {selectedLinkTargetId}</span>
               <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${classificationClass(selectedLink.classification)}`}>
                 {REASONING_CLASSIFICATION_LABELS[selectedLink.classification]}
               </span>
               {classificationNeedsReview(selectedLink.classification) && (
                 <span className="rounded-full border border-amber-400 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Review</span>
               )}
+              {selectedLinkMitigation && <span className="rounded-full border border-defense bg-green-50 px-2 py-0.5 text-[11px] font-semibold text-defense">Mitigation path</span>}
             </div>
             <p className="mt-2 text-sm leading-relaxed text-slate-300">{selectedLink.label}</p>
             <p className="mt-1 text-xs text-slate-400">Confidence {selectedLink.confidence.toFixed(2)} · {selectedLink.type}</p>
+            {selectedLinkMitigation && (
+              <p className="mt-2 rounded-lg border border-defense/40 bg-green-950/30 px-2 py-1.5 text-sm text-green-100">
+                Mitigation relevance: this edge moves the route from offensive reasoning toward D3FEND or defensive action.
+              </p>
+            )}
             {selectedLink.note && <p className="mt-2 rounded-lg border border-slate-800 bg-slate-950/80 px-2 py-1.5 text-sm text-slate-300">{selectedLink.note}</p>}
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
               <button
@@ -188,14 +217,14 @@ export default function GraphInspector({
               </button>
               <button
                 type="button"
-                onClick={() => onFocusNode(selectedLink.source)}
+                onClick={() => onFocusNode(selectedLinkSourceId)}
                 className="rounded-full border border-slate-700 bg-slate-950 px-2 py-1 text-slate-300 hover:border-link hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-link"
               >
                 Focus source
               </button>
               <button
                 type="button"
-                onClick={() => onFocusNode(selectedLink.target)}
+                onClick={() => onFocusNode(selectedLinkTargetId)}
                 className="rounded-full border border-slate-700 bg-slate-950 px-2 py-1 text-slate-300 hover:border-link hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-link"
               >
                 Focus target

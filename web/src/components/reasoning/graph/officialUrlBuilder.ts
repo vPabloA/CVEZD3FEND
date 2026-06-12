@@ -3,16 +3,13 @@ const CWE_RE = /^CWE-(\d+)$/i;
 const CAPEC_RE = /^CAPEC-(\d+)$/i;
 const ATTACK_RE = /^T(\d{4})(?:\.(\d{3}))?$/i;
 const TACTIC_RE = /^TA\d{4}$/i;
-const D3FEND_RE = /^(?:D3-|D3F:)(.+)$/i;
+const D3FEND_SAFE_RE = /^d3f:[A-Za-z][A-Za-z0-9]+$/;
+const D3FEND_URL_RE = /^https:\/\/d3fend\.mitre\.org\/technique\/d3f:[A-Za-z][A-Za-z0-9]+\/?$/i;
 
-function toPascalCase(value: string): string {
-  return value
-    .replace(/[^A-Za-z0-9]+/g, " ")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join("");
+const D3FEND_OFFICIAL_ID_MAP: Record<string, string> = {};
+
+export function isTrustedD3fendUrl(url: string | null | undefined): boolean {
+  return Boolean(url && D3FEND_URL_RE.test(url));
 }
 
 export function buildOfficialUrl(id: string): string | null {
@@ -32,12 +29,15 @@ export function buildOfficialUrl(id: string): string | null {
 
   if (TACTIC_RE.test(id)) return `https://attack.mitre.org/tactics/${id.toUpperCase()}/`;
 
-  const defend = id.match(D3FEND_RE);
-  if (defend) {
-    const pascal = toPascalCase(defend[1]);
-    if (!pascal) return null;
-    return `https://d3fend.mitre.org/technique/${encodeURIComponent(`d3f:${pascal}`)}`;
-  }
+  if (D3FEND_SAFE_RE.test(id)) return `https://d3fend.mitre.org/technique/${encodeURIComponent(id)}`;
+
+  const mappedD3fendUrl = D3FEND_OFFICIAL_ID_MAP[id.toUpperCase()];
+  if (mappedD3fendUrl) return mappedD3fendUrl;
 
   return null;
+}
+
+export function buildTrustedOfficialUrl(id: string, providedUrl?: string | null): string | null {
+  if (isTrustedD3fendUrl(providedUrl)) return providedUrl ?? null;
+  return buildOfficialUrl(id);
 }

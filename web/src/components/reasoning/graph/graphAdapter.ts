@@ -1,6 +1,7 @@
 import { classificationNeedsReview } from "@/lib/colors";
 import type { ReasoningEdge, ReasoningResult } from "@/lib/reasoningTypes";
-import { buildOfficialUrl } from "./officialUrlBuilder";
+import { buildTrustedOfficialUrl } from "./officialUrlBuilder";
+import { graphLinkSourceId, graphLinkTargetId } from "./graphRuntime";
 import type { GraphLinkData, GraphModel, GraphNodeData, GraphNodeKind, GraphRouteRole, GraphSelection } from "./graphTypes";
 
 const ROUTE_ROLE_PRIORITY: Record<GraphRouteRole, number> = {
@@ -215,7 +216,7 @@ export function buildGraphModel(result: ReasoningResult, mode: string, selection
       evidence: collectEvidence(result.edges, id),
       sourceRefs: collectSourceRefs(result.edges, id),
       sourceUrl: result.edges.find((edge) => edge.source === id || edge.target === id)?.source_url ?? null,
-      officialUrl: buildOfficialUrl(id),
+      officialUrl: buildTrustedOfficialUrl(id, result.edges.find((edge) => edge.source === id || edge.target === id)?.source_url ?? null),
       reviewRequired: routeRole === "conditional" || routeRole === "weak-fit" || result.edges.some((edge) => (edge.source === id || edge.target === id) && classificationNeedsReview(edge.classification)),
       synthetic: false,
     };
@@ -225,8 +226,8 @@ export function buildGraphModel(result: ReasoningResult, mode: string, selection
 
   seeds.forEach((id) => ensureNode(id));
   links.forEach((link) => {
-    ensureNode(link.source);
-    ensureNode(link.target);
+    ensureNode(graphLinkSourceId(link));
+    ensureNode(graphLinkTargetId(link));
   });
 
   const baseVisible = prioritizeIds([...seeds], result, selection);
@@ -236,15 +237,15 @@ export function buildGraphModel(result: ReasoningResult, mode: string, selection
   if (selection?.kind === "edge") {
     const selectedEdge = links.find((link) => link.id === selection.id);
     if (selectedEdge) {
-      visibleIds.add(selectedEdge.source);
-      visibleIds.add(selectedEdge.target);
+      visibleIds.add(graphLinkSourceId(selectedEdge));
+      visibleIds.add(graphLinkTargetId(selectedEdge));
     }
   }
 
-  const visibleLinks = links.filter((link) => visibleIds.has(link.source) && visibleIds.has(link.target));
+  const visibleLinks = links.filter((link) => visibleIds.has(graphLinkSourceId(link)) && visibleIds.has(graphLinkTargetId(link)));
   visibleLinks.forEach((link) => {
-    visibleIds.add(link.source);
-    visibleIds.add(link.target);
+    visibleIds.add(graphLinkSourceId(link));
+    visibleIds.add(graphLinkTargetId(link));
   });
 
   // If the selected route still leaves room, retain a few extra neighbors so the
@@ -259,13 +260,13 @@ export function buildGraphModel(result: ReasoningResult, mode: string, selection
   }
 
   const visibleNodes = [...visibleIds].map((id) => nodesById.get(id) ?? ensureNode(id));
-  const filteredLinks = links.filter((link) => visibleIds.has(link.source) && visibleIds.has(link.target));
+  const filteredLinks = links.filter((link) => visibleIds.has(graphLinkSourceId(link)) && visibleIds.has(graphLinkTargetId(link)));
 
   const canonicalConfidences = routeChain
     .slice(1)
     .map((targetId, index) => {
       const sourceId = routeChain[index];
-      return links.find((link) => link.source === sourceId && link.target === targetId)?.confidence;
+      return links.find((link) => graphLinkSourceId(link) === sourceId && graphLinkTargetId(link) === targetId)?.confidence;
     })
     .filter((value): value is number => typeof value === "number");
   const routeConfidence = canonicalConfidences.length > 0 ? canonicalConfidences.reduce((sum, value) => sum + value, 0) / canonicalConfidences.length : num(result.edges[0]?.confidence, 0.5);

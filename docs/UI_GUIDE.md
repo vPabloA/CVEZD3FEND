@@ -140,7 +140,9 @@ The page depends on the optional API sidecar (`CVEzD3FEND api`,
   path / full traceability / evidence modes, zoom and pan, fit/reset controls,
   compact classification filters, hover tooltips, node and edge selection, a
   right-hand inspector, and official-source navigation when a stable URL can
-  be derived safely.
+  be derived safely. Graph-level notices explain empty, edge-less, partial,
+  unavailable, or filter-hidden selection states without falling back to a raw
+  contract dump.
 - `graph/*` — product-owned adapters, URL builders, path highlighting, and
   graph-mode controls for the navigator.
 - `AdvancedEvidenceDrawer` — bottom evidence drawer for provenance summary,
@@ -192,8 +194,22 @@ repeated "Promote" button under every edge.
 - Default graph mode: `Focused Route`.
 - The graph exposes hover tooltips, selection focus, fit/reset, and a small
   classification filter set rather than a long control wall.
+- Empty/degraded states are graph-level and product-worded: no graphable route,
+  no relationships, partial route, graph data unavailable, or selected node/
+  edge hidden by active filters.
+- `Mitigation Path` mode makes the attack-to-defense route explicit by
+  strengthening defensive edges, adding defensive glow, dimming unrelated
+  context, and adding inspector language that explains the route from offensive
+  reasoning toward D3FEND/defensive action.
 - Official-source links open NVD, MITRE CWE, MITRE CAPEC, MITRE ATT&CK or
-  MITRE D3FEND when the identifier can be mapped safely.
+  MITRE D3FEND when the identifier can be mapped safely. D3FEND links are not
+  invented from uncertain abbreviations such as `D3-EFA`; they render only for
+  trusted provided URLs, explicit local mappings, or already-resolvable
+  `d3f:*` identifiers.
+- The graph runtime normalizes `source`/`target` through helper functions
+  because `react-force-graph-2d` mutates link endpoints from string ids into
+  node objects after simulation starts. Edge selection, inspector focus, path
+  highlighting, and mitigation detection must read IDs through those helpers.
 - Reduced-motion users still get a readable node/edge canvas because the
   inspector and tooltips carry the semantic detail.
 
