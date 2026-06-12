@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 
-/** CVE id input + analyze action. The committed value drives `useReasoning`; typing alone does not trigger a fetch. */
+/**
+ * CVE id command input + analyze action, styled as a workbench command
+ * control (dark, mono) rather than a generic form field. The committed
+ * value drives `useReasoning`; typing alone does not trigger a fetch.
+ */
 export default function CveAnalyzeForm({ value, onSubmit, busy }: { value: string; onSubmit: (cveId: string) => void; busy: boolean }) {
   const [draft, setDraft] = useState(value);
 
@@ -14,23 +18,25 @@ export default function CveAnalyzeForm({ value, onSubmit, busy }: { value: strin
         e.preventDefault();
         onSubmit(draft.trim());
       }}
-      className="flex flex-col gap-2 sm:flex-row sm:items-end"
+      className="flex w-full items-stretch overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-inner focus-within:border-link focus-within:ring-2 focus-within:ring-link/60"
     >
-      <label className="flex flex-1 flex-col gap-1 text-sm">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">CVE ID</span>
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="e.g. CVE-2021-44228"
-          className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm shadow-sm focus:border-link focus:outline-none focus-visible:ring-2 focus-visible:ring-link"
-          aria-label="CVE ID to analyze"
-        />
-      </label>
+      <span className="flex select-none items-center pl-3 pr-1 font-mono text-sm text-sky-400" aria-hidden="true">
+        ❯
+      </span>
+      <input
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder="CVE-YYYY-NNNNN"
+        className="min-w-0 flex-1 bg-transparent px-2 py-2 font-mono text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+        aria-label="CVE ID to analyze"
+        spellCheck={false}
+        autoComplete="off"
+      />
       <button
         type="submit"
         disabled={busy || !draft.trim()}
-        className="rounded-md border border-link bg-link px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-link disabled:cursor-not-allowed disabled:opacity-50"
+        className="border-l border-slate-700 bg-link px-4 text-sm font-semibold text-white transition hover:bg-blue-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-50"
       >
         {busy ? "Analyzing…" : "Analyze"}
       </button>

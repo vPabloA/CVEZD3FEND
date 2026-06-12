@@ -61,8 +61,13 @@ export default function AiReasoningActions({
   };
 
   return (
-    <section className="rounded-md border border-slate-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-slate-700">AI Review</h2>
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-slate-700">AI Review</h2>
+        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          Governed
+        </span>
+      </div>
       <p className="mt-1 text-xs text-slate-500">
         AI proposes, the engine validates, and a named reviewer promotes only one selected edge at a time.
       </p>
@@ -73,7 +78,7 @@ export default function AiReasoningActions({
             type="button"
             disabled={!apiAvailable || propose.busy}
             onClick={handlePropose}
-            className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-link disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-link disabled:cursor-not-allowed disabled:opacity-50"
           >
             {propose.busy ? "Thinking…" : "Propose route"}
           </button>
@@ -81,7 +86,7 @@ export default function AiReasoningActions({
             type="button"
             disabled={!apiAvailable || validate.busy}
             onClick={handleValidate}
-            className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-link disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-link disabled:cursor-not-allowed disabled:opacity-50"
           >
             {validate.busy ? "Validating…" : "Validate route"}
           </button>

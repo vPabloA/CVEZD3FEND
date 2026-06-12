@@ -48,7 +48,7 @@ export default function GraphInspector({
   const selectedLinkMitigation = Boolean(selectedLink && mitigationLinkIds.has(selectedLink.id));
 
   return (
-    <aside className="flex h-full min-h-[18rem] flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950/80 p-4 text-slate-200">
+    <aside className="flex h-full min-h-[14rem] w-full flex-col gap-3 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/90 p-4 text-slate-200 shadow-2xl backdrop-blur">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Inspector</p>

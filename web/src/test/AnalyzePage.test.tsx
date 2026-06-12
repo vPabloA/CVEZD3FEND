@@ -100,8 +100,12 @@ describe("AnalyzePage", () => {
     expect(screen.getByText("Route navigator")).toBeInTheDocument();
     expect(screen.getByText("Evidencia / Advanced details")).toBeInTheDocument();
 
-    // Narrative
-    expect(screen.getAllByText("Narrativa").length).toBeGreaterThan(0);
+    // Intelligence briefing: Tier 1 conclusion + Threat-Defense Reasoning Skills
+    expect(screen.getByText("Tier 1 conclusion")).toBeInTheDocument();
+    expect(screen.getByText("Threat-Defense Reasoning Skills")).toBeInTheDocument();
+    expect(screen.getByText("CVE Interpreter")).toBeInTheDocument();
+    expect(screen.getByText("D3FEND Advisor")).toBeInTheDocument();
+    expect(screen.getByText("Defensive direction")).toBeInTheDocument();
     expect(screen.getByText(/inyección SQL remota/)).toBeInTheDocument();
 
     // Risk summary — KEV listed pushes overall level to Critical

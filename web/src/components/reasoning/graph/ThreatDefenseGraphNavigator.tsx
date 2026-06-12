@@ -80,15 +80,39 @@ export default function ThreatDefenseGraphNavigator({
   onClearSelection: () => void;
 }) {
   const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const autoFittedRef = useRef(false);
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number } | null>(null);
   const [mode, setMode] = useState<GraphMode>("focused-route");
   const [classificationFilters, setClassificationFilters] = useState<Set<ReasoningEdgeClassification>>(new Set(DEFAULT_CLASSIFICATIONS));
   const [stabilized, setStabilized] = useState(false);
   const classificationFilterKey = [...classificationFilters].sort().join("|");
   const selectionFilterKey = selection ? `${selection.kind}:${selection.id}` : "none";
+  const mitigationMode = mode === "mitigation-path";
 
   useEffect(() => {
     setStabilized(false);
   }, [result, mode, classificationFilterKey, selectionFilterKey]);
+
+  // Re-frame the route once per data/mode change so the graph fills the stage.
+  useEffect(() => {
+    autoFittedRef.current = false;
+  }, [result, mode, classificationFilterKey]);
+
+  // react-force-graph sizes its canvas to the window by default; track the
+  // stage container instead so the canvas always matches the visible frame.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (rect && rect.width > 0 && rect.height > 0) {
+        setCanvasSize({ width: rect.width, height: rect.height });
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const graph = useMemo(() => buildGraphModel(result, mode, selection), [result, mode, selection]);
   const highlights = useMemo(() => buildHighlightState(graph, selection, mode), [graph, selection, mode]);
@@ -150,7 +174,13 @@ export default function ThreatDefenseGraphNavigator({
   }, [graph.links.length, graph.nodes, graph.routeChain, result.errors.length, selectedHidden, selection?.kind]);
 
   const fitView = () => {
-    fgRef.current?.zoomToFit?.(350, 40);
+    fgRef.current?.zoomToFit?.(350, 60);
+    // Small routes otherwise over-zoom into giant nodes; cap the fit zoom.
+    window.setTimeout(() => {
+      const fg = fgRef.current;
+      const current = fg?.zoom?.();
+      if (typeof current === "number" && current > 2) fg?.zoom?.(2, 200);
+    }, 420);
   };
 
   const resetSelection = () => {
@@ -168,75 +198,93 @@ export default function ThreatDefenseGraphNavigator({
     <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl">
       <div className="border-b border-slate-800/80 bg-slate-950/90 px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Threat-Defense Knowledge Graph Navigator</p>
-            <h2 className="mt-1 text-base font-semibold text-slate-100">Ruta activa</h2>
-            <p className="mt-1 text-xs font-medium uppercase tracking-[0.18em] text-sky-300">Interactive Knowledge Graph</p>
-            <p className="mt-1 max-w-3xl truncate font-mono text-xs text-slate-400" title={graph.routeChain.join(" → ") || "Partial route"}>
-              {graph.routeChain.length > 0 ? graph.routeChain.join(" → ") : "Partial route from available reasoning edges"}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
-            <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1">{graph.nodes.length} nodes</span>
-            <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1">{graph.links.length} edges</span>
-            {mode === "mitigation-path" && (
-              <span className="rounded-full border border-defense bg-green-50 px-2 py-1 font-semibold text-defense">
-                Mitigation path
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-semibold text-slate-100">Ruta activa</h2>
+              <span className="rounded-full border border-sky-500/40 bg-sky-950/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-sky-300">
+                Interactive Knowledge Graph
               </span>
+            </div>
+            {graph.routeChain.length > 0 ? (
+              <div className="mt-2 flex flex-wrap items-center gap-1" title={graph.routeChain.join(" → ")}>
+                {graph.routeChain.map((id, index) => (
+                  <span key={id} className="flex items-center gap-1">
+                    <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-[11px] text-slate-300">{id}</span>
+                    {index < graph.routeChain.length - 1 && (
+                      <span className="text-slate-600" aria-hidden="true">
+                        →
+                      </span>
+                    )}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 font-mono text-xs text-slate-400">Partial route from available reasoning edges</p>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-300">
+            <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1">
+              {graph.nodes.length} nodes · {graph.links.length} edges
+            </span>
+            {mitigationMode && (
+              <span className="rounded-full border border-defense bg-green-50 px-2 py-1 font-semibold text-defense">Mitigation path</span>
             )}
             <span className={`rounded-full border px-2 py-1 ${result.human_review.required ? "border-amber-400 bg-amber-50 text-amber-800" : "border-ok bg-green-50 text-ok"}`}>
               {result.human_review.required ? "Human review required" : "Route validated"}
             </span>
-            <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">
-              {result.source_mode}
-            </span>
+            <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{result.source_mode}</span>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="flex min-h-[38rem] flex-col gap-3 border-r border-slate-800/80 p-3">
-          {stateNotices.length > 0 && (
-            <div className="grid gap-2">
-              {stateNotices.map((notice) => (
-                <div
-                  key={notice.text}
-                  className={`rounded-xl border px-3 py-2 text-sm ${
-                    notice.tone === "warning"
-                      ? "border-amber-400/50 bg-amber-950/30 text-amber-100"
-                      : "border-sky-500/30 bg-sky-950/30 text-sky-100"
-                  }`}
-                >
-                  {notice.text}
-                </div>
-              ))}
-            </div>
-          )}
+      <div className="flex min-h-[42rem] flex-col gap-3 p-3 2xl:min-h-[46rem]">
+        {stateNotices.length > 0 && (
+          <div className="grid gap-2">
+            {stateNotices.map((notice) => (
+              <div
+                key={notice.text}
+                className={`rounded-xl border px-3 py-2 text-sm ${
+                  notice.tone === "warning"
+                    ? "border-amber-400/50 bg-amber-950/30 text-amber-100"
+                    : "border-sky-500/30 bg-sky-950/30 text-sky-100"
+                }`}
+              >
+                {notice.text}
+              </div>
+            ))}
+          </div>
+        )}
 
-          <GraphControls
-            mode={mode}
-            onModeChange={setMode}
-            classificationFilters={classificationFilters}
-            onToggleClassification={(classification) => {
-              setClassificationFilters((current) => {
-                const next = new Set(current);
-                if (next.has(classification)) next.delete(classification);
-                else next.add(classification);
-                return next.size === 0 ? new Set(DEFAULT_CLASSIFICATIONS) : next;
-              });
-            }}
-            onFitView={fitView}
-            onResetSelection={resetSelection}
-            onClearSelection={clearSelection}
-            stabilized={stabilized}
-            hiddenNodeCount={graph.hiddenNodeCount}
-            hiddenLinkCount={graph.hiddenLinkCount}
-          />
+        <GraphControls
+          mode={mode}
+          onModeChange={setMode}
+          classificationFilters={classificationFilters}
+          onToggleClassification={(classification) => {
+            setClassificationFilters((current) => {
+              const next = new Set(current);
+              if (next.has(classification)) next.delete(classification);
+              else next.add(classification);
+              return next.size === 0 ? new Set(DEFAULT_CLASSIFICATIONS) : next;
+            });
+          }}
+          onFitView={fitView}
+          onResetSelection={resetSelection}
+          onClearSelection={clearSelection}
+          hiddenNodeCount={graph.hiddenNodeCount}
+          hiddenLinkCount={graph.hiddenLinkCount}
+        />
 
-          <div className="relative flex min-h-[30rem] flex-1 overflow-hidden rounded-2xl border border-slate-800 bg-[radial-gradient(circle_at_20%_20%,rgba(31,111,235,0.18),transparent_28%),radial-gradient(circle_at_78%_26%,rgba(21,128,61,0.14),transparent_28%),linear-gradient(135deg,rgba(2,6,23,1),rgba(15,23,42,0.98))]">
+        <div className="relative flex flex-1 flex-col gap-3">
+          <div
+            ref={canvasRef}
+            className="relative flex min-h-[32rem] flex-1 overflow-hidden rounded-2xl border border-slate-800 bg-[radial-gradient(circle_at_20%_20%,rgba(31,111,235,0.18),transparent_28%),radial-gradient(circle_at_78%_26%,rgba(21,128,61,0.14),transparent_28%),linear-gradient(135deg,rgba(2,6,23,1),rgba(15,23,42,0.98))]"
+          >
             <div className="absolute inset-0 pointer-events-none opacity-25 [background-image:linear-gradient(rgba(148,163,184,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.12)_1px,transparent_1px)] [background-size:28px_28px]" />
             <ForceGraph2D
               ref={fgRef}
+              width={canvasSize?.width}
+              height={canvasSize?.height}
               graphData={{ nodes: renderedNodes, links: renderedLinks }}
               backgroundColor="transparent"
               enableNodeDrag
@@ -247,26 +295,27 @@ export default function ThreatDefenseGraphNavigator({
               d3VelocityDecay={0.35}
               linkColor={(link) => {
                 const typed = link as RenderedLink;
-                if (typed.mitigation && mode === "mitigation-path") return COLORS.defense;
+                if (typed.mitigation && mitigationMode) return COLORS.defense;
+                if (mitigationMode) return `${classificationColor(typed.classification)}33`;
                 if (typed.focused) return COLORS.ok;
                 if (typed.highlighted) return classificationColor(typed.classification);
                 return `${classificationColor(typed.classification)}88`;
               }}
               linkWidth={(link) => {
                 const typed = link as RenderedLink;
-                if (typed.mitigation && mode === "mitigation-path") return typed.focused ? 4.2 : 3.4;
+                if (typed.mitigation && mitigationMode) return typed.focused ? 4.2 : 3.4;
                 return typed.focused ? 2.6 : typed.highlighted ? 1.8 : 1.0;
               }}
               linkVisibility={(link) => classificationFilters.has((link as GraphLinkData).classification)}
               linkDirectionalArrowLength={(link) => {
                 const typed = link as RenderedLink;
-                if (typed.mitigation && mode === "mitigation-path") return 6;
+                if (typed.mitigation && mitigationMode) return 6;
                 return typed.highlighted ? 4.5 : 3.2;
               }}
               linkDirectionalArrowRelPos={1}
               linkDirectionalParticles={(link) => {
                 const typed = link as RenderedLink;
-                if (typed.mitigation && mode === "mitigation-path") return 4;
+                if (typed.mitigation && mitigationMode) return 4;
                 return typed.focused ? 3 : typed.highlighted ? 1 : 0;
               }}
               linkDirectionalParticleWidth={() => 1.4}
@@ -307,7 +356,13 @@ export default function ThreatDefenseGraphNavigator({
                 onSelectEdge(typed.id);
               }}
               onBackgroundClick={() => clearSelection()}
-              onEngineStop={() => setStabilized(true)}
+              onEngineStop={() => {
+                setStabilized(true);
+                if (!autoFittedRef.current) {
+                  autoFittedRef.current = true;
+                  fitView();
+                }
+              }}
               nodeCanvasObject={(node, ctx, _globalScale) => {
                 const typed = node as RenderedNode;
                 const x = typed.x ?? 0;
@@ -315,9 +370,11 @@ export default function ThreatDefenseGraphNavigator({
                 const radius = nodeRadius(typed);
                 const fill = nodeColor(typed);
                 const highlight = typed.focused || typed.highlighted || selection?.kind === "node" && selection.id === typed.id;
-                const mitigation = typed.mitigation && mode === "mitigation-path";
+                const mitigation = typed.mitigation && mitigationMode;
+                const dimmed = mitigationMode && !typed.mitigation && !highlight;
 
                 ctx.save();
+                if (dimmed) ctx.globalAlpha = 0.35;
                 ctx.beginPath();
                 ctx.arc(x, y, radius + (mitigation ? 4.2 : highlight ? 2.2 : 0.8), 0, Math.PI * 2);
                 ctx.fillStyle = mitigation ? `${COLORS.defense}44` : highlight ? `${fill}33` : "rgba(15, 23, 42, 0.12)";
@@ -344,9 +401,9 @@ export default function ThreatDefenseGraphNavigator({
               }}
             />
 
-            <div className="pointer-events-none absolute inset-x-3 bottom-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap items-center gap-2">
               <div className="rounded-full border border-slate-800 bg-slate-950/90 px-3 py-1 text-[11px] text-slate-300 backdrop-blur">
-                {mode === "mitigation-path" ? "Mitigation path focus" : selection?.kind === "edge" ? "Edge focus" : selection?.kind === "node" ? "Node focus" : "Route focus"}
+                {mitigationMode ? "Mitigation path focus" : selection?.kind === "edge" ? "Edge focus" : selection?.kind === "node" ? "Node focus" : "Route focus"}
               </div>
               <div className="rounded-full border border-slate-800 bg-slate-950/90 px-3 py-1 text-[11px] text-slate-300 backdrop-blur">
                 {stabilized ? "Simulation stable" : "Simulation stabilizing"}
@@ -354,24 +411,31 @@ export default function ThreatDefenseGraphNavigator({
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-            <GraphLegend />
-          </div>
+          {selection && (
+            <div className="xl:absolute xl:bottom-3 xl:right-3 xl:top-3 xl:flex xl:w-[20.5rem]">
+              <GraphInspector
+                selection={selection}
+                nodes={renderedNodes}
+                links={renderedLinks}
+                resultEdges={result.edges}
+                mitigationNodeIds={highlights.mitigationNodes}
+                mitigationLinkIds={highlights.mitigationLinks}
+                onFocusNode={(nodeId) => onSelectNode(nodeId)}
+                onFocusEdge={(edgeId) => onSelectEdge(edgeId)}
+                onClearSelection={clearSelection}
+              />
+            </div>
+          )}
         </div>
 
-        <div className="border-t border-slate-800/80 xl:border-l xl:border-t-0">
-          <GraphInspector
-            selection={selection}
-            nodes={renderedNodes}
-            links={renderedLinks}
-            resultEdges={result.edges}
-            mitigationNodeIds={highlights.mitigationNodes}
-            mitigationLinkIds={highlights.mitigationLinks}
-            onFocusNode={(nodeId) => onSelectNode(nodeId)}
-            onFocusEdge={(edgeId) => onSelectEdge(edgeId)}
-            onClearSelection={clearSelection}
-          />
-        </div>
+        <details className="rounded-xl border border-slate-800 bg-slate-950/60">
+          <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 hover:text-slate-200">
+            Legend & classification key
+          </summary>
+          <div className="px-3 pb-3">
+            <GraphLegend />
+          </div>
+        </details>
       </div>
     </section>
   );
