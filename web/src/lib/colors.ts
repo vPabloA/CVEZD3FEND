@@ -2,6 +2,7 @@
 // UIX_CONTRACT §4 — all node/edge color decisions go through this module,
 // no inline hex anywhere else.
 import type { BundleNode, BundleEdge, CoverageStatus, NodeType } from "./types";
+import type { ReasoningEdgeClassification, SourceMode } from "./reasoningTypes";
 
 export const COLORS = {
   ok: "#1a7f37",
@@ -12,6 +13,7 @@ export const COLORS = {
   offense: "#c2410c",
   defense: "#15803d",
   template: "#6b7280",
+  conditional: "#0e7490",
 } as const;
 
 export type ColorToken = keyof typeof COLORS;
@@ -97,4 +99,117 @@ export function nodeTypeLabel(type: NodeType): string {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning workbench extensions (UIX_CONTRACT §4 extension)
+//
+// The live reasoning plane classifies every edge into one of 7 levels —
+// finer-grained than the bundle's canonical/inferred booleans. Each level
+// maps onto an existing color token plus a distinct icon/label so color is
+// never the only signal (UIX_CONTRACT §7); "conditional" is the only new token.
+// ---------------------------------------------------------------------------
+
+export const REASONING_CLASSIFICATION_LABELS: Record<ReasoningEdgeClassification, string> = {
+  official_explicit: "Official",
+  official_incomplete: "Official (partial)",
+  dataset_derived: "Dataset-derived",
+  analytical_inferred: "Analytical (AI)",
+  conditional: "Conditional",
+  weak_fit: "Weak fit",
+  unverified: "Unverified",
+};
+
+export const REASONING_CLASSIFICATION_ICONS: Record<ReasoningEdgeClassification, string> = {
+  official_explicit: "✓",
+  official_incomplete: "✓~",
+  dataset_derived: "◆",
+  analytical_inferred: "✦",
+  conditional: "◐",
+  weak_fit: "┄",
+  unverified: "?",
+};
+
+/** Tailwind text/border/bg classes for an edge-classification badge. */
+export function classificationClass(classification: ReasoningEdgeClassification): string {
+  switch (classification) {
+    case "official_explicit":
+      return "text-ok border-ok bg-green-50";
+    case "official_incomplete":
+      return "text-ok border-ok bg-green-50/60";
+    case "dataset_derived":
+      return "text-link border-link bg-blue-50";
+    case "analytical_inferred":
+      return "text-inferred border-inferred bg-amber-50";
+    case "conditional":
+      return "text-conditional border-conditional bg-cyan-50";
+    case "weak_fit":
+      return "text-template border-template bg-slate-100";
+    case "unverified":
+      return "text-gap border-gap bg-red-50";
+  }
+}
+
+/** Dashed border for the two least-certain classifications, matching the AI-promoted edge convention. */
+export function classificationBorderStyle(classification: ReasoningEdgeClassification): "dashed" | "solid" {
+  return classification === "weak_fit" || classification === "unverified" ? "dashed" : "solid";
+}
+
+/** Whether a reasoning edge represents content a human should consider promoting/reviewing. */
+export function classificationNeedsReview(classification: ReasoningEdgeClassification): boolean {
+  return classification !== "official_explicit" && classification !== "official_incomplete";
+}
+
+export type RiskLevel = "critical" | "high" | "medium" | "low" | "unknown";
+
+export const RISK_LEVEL_LABELS: Record<RiskLevel, string> = {
+  critical: "Critical",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  unknown: "Unknown",
+};
+
+export function riskLevelClass(level: RiskLevel): string {
+  switch (level) {
+    case "critical":
+    case "high":
+      return "text-gap border-gap bg-red-50";
+    case "medium":
+      return "text-inferred border-inferred bg-amber-50";
+    case "low":
+      return "text-ok border-ok bg-green-50";
+    default:
+      return "text-template border-template bg-slate-100";
+  }
+}
+
+/** Derive a coarse risk level from a CVSS base score (0-10) plus optional KEV listing. */
+export function riskLevelFromScore(baseScore: number | null | undefined, kevListed: boolean): RiskLevel {
+  if (kevListed) return "critical";
+  if (baseScore === null || baseScore === undefined || Number.isNaN(baseScore)) return "unknown";
+  if (baseScore >= 9) return "critical";
+  if (baseScore >= 7) return "high";
+  if (baseScore >= 4) return "medium";
+  return "low";
+}
+
+export const SOURCE_MODE_LABELS: Record<SourceMode, string> = {
+  live: "Live",
+  cached: "Cached",
+  offline: "Offline",
+};
+
+/** Tailwind classes for the live/cached/offline source-mode badge. */
+export function sourceModeClass(mode: string): string {
+  switch (mode) {
+    case "live":
+      return "text-ok border-ok bg-green-50";
+    case "cached":
+      return "text-inferred border-inferred bg-amber-50";
+    case "offline":
+      return "text-template border-template bg-slate-100";
+    default:
+      return "text-template border-template bg-slate-100";
+  }
 }

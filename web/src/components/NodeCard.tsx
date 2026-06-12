@@ -23,6 +23,15 @@ export default function NodeCard({ node, compact = false }: { node: BundleNode; 
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <ProvenanceBadge canonical={node.canonical} inferred={node.inferred} />
           <ConfidenceBadge confidence={node.confidence} />
+          {node.type === "cve" && (
+            <Link
+              to={`/analyze?cve=${encodeURIComponent(node.id)}`}
+              onClick={(e) => e.stopPropagation()}
+              className="ml-auto rounded border border-link bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-link hover:bg-blue-100"
+            >
+              Analyze →
+            </Link>
+          )}
         </div>
       )}
     </Link>

@@ -51,6 +51,29 @@ Canonical and inferred content are never visually identical. AI-promoted
 overlay edges always render with a dashed stroke + `--inferred` color +
 "AI-promoted" badge, regardless of the node types they connect.
 
+### 4a. Reasoning edge classification (Reasoning Workbench extension)
+
+The live reasoning plane (`/api/reason/{cve_id}`) classifies every edge into
+one of seven `ReasoningEdgeClassification` levels, finer-grained than the
+bundle's canonical/inferred booleans. Each level maps onto an existing color
+token plus a distinct icon/label (`lib/colors.ts`:
+`REASONING_CLASSIFICATION_LABELS`/`_ICONS`), so color is never the only
+signal:
+
+| classification | label | icon | color token |
+|---|---|---|---|
+| `official_explicit` | Official | ✓ | `--ok` |
+| `official_incomplete` | Official (partial) | ✓~ | `--ok` (lighter) |
+| `dataset_derived` | Dataset-derived | ◆ | `--link` |
+| `analytical_inferred` | Analytical (AI) | ✦ | `--inferred` |
+| `conditional` | Conditional | ◐ | `--conditional` (new, `#0e7490`) |
+| `weak_fit` | Weak fit | ┄ | `--template` (dashed border) |
+| `unverified` | Unverified | ? | `--gap` (dashed border) |
+
+Edges in the last five categories are flagged `classificationNeedsReview`
+and may expose a "Promote to canonical" action — gated on a named reviewer
+(see §9).
+
 ## 5. Filters & state
 
 - Search query, active filters (node type, framework, coverage status,
@@ -78,6 +101,45 @@ overlay edges always render with a dashed stroke + `--inferred` color +
    reports candidates present); lists `data/review/ai-candidates.jsonl`
    entries with diff-vs-bundle, promote/reject actions (calls API if running;
    otherwise read-only with CLI instructions).
+7. **Reasoning Workbench** (`/analyze`, `pages/AnalyzePage.tsx`) — runs the
+   live enrichment + reasoning engine for a CVE: risk summary (CVSS/EPSS/KEV/
+   exploitability), Spanish narrative ("Reasoning summary"), classified route
+   contract (§4a), bounded reasoning trace and per-source provenance ledger,
+   SOC Action Pack / Detection Engineering / Threat Hunting / CTEM panels,
+   exports (markdown/tree/mermaid), and AI-assisted propose/validate route
+   actions. Requires the optional API sidecar (`CVEzD3FEND api`) — if it is
+   unreachable or `/api/meta` reports `reasoning_available: false`, the page
+   shows an honest degraded banner with CLI start instructions and a "Check
+   again" retry, and never simulates a result (§3, §9).
+
+## 9. AI/reasoning honesty & human review
+
+- AI-derived content (proposed routes, validation results, `analytical_inferred`
+  / `conditional` / `weak_fit` / `unverified` edges) is always shown as a
+  visible, labeled fact ("AI proposal (not canonical)", "Validation result")
+  — never as hidden chain-of-thought or a fabricated "thinking" animation.
+- If `human_review.required` is true on a reasoning result, a visible
+  `role="alert"` banner states this and the reason; it is not dismissible by
+  AI action.
+- Promotion of any non-official edge to canonical (`POST
+  /api/review/promote-edge`) requires a non-empty, user-entered reviewer name
+  (AI_ASSISTANCE_CONTRACT: AI proposes, determinism validates, humans
+  promote). The action is disabled — with an explanatory inline message,
+  never silently — until both the API is reachable and a reviewer name is
+  entered.
+- If the API sidecar is disabled, degraded, or offline, every dependent
+  control (AI propose/validate, promote) is disabled with an inline
+  explanation. No view fakes a success state.
+
+## 10. Graph navigator placeholder (prepares a later iteration)
+
+`components/reasoning/GraphNavigatorPlaceholder.tsx` reserves the layout slot
+for a future "Threat-Defense Knowledge Graph Navigator" on the Reasoning
+Workbench. It is intentionally non-empty: it explains what will land there,
+carries a "Next iteration" badge, and — when the reasoning result includes
+`exports.navigator_layer` — offers it as a download today. This placeholder
+must not be removed or replaced with an empty `<div>`; the eventual graph
+navigator implementation should slot into this reserved position.
 
 ## 7. Accessibility minimums
 

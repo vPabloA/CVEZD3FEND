@@ -99,10 +99,15 @@ export default function NodeDetailPage() {
       )}
 
       {/* Related actions */}
-      {(cveRoutes.length > 0 || node.type === "attack" || node.type === "gap") && (
+      {(cveRoutes.length > 0 || node.type === "attack" || node.type === "gap" || node.type === "cve") && (
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Related actions</h2>
           <div className="flex flex-wrap gap-2 text-sm">
+            {node.type === "cve" && (
+              <Link to={`/analyze?cve=${encodeURIComponent(node.id)}`} className="rounded border border-link bg-white px-2 py-1 text-link hover:bg-blue-50">
+                Open in Reasoning Workbench
+              </Link>
+            )}
             {cveRoutes.map((r) => (
               <Link key={r.route_id} to={`/route/${encodeURIComponent(r.route_id)}`} className="rounded border border-link bg-white px-2 py-1 text-link hover:bg-blue-50">
                 Route → {r.end_node} (conf {r.confidence.toFixed(2)})

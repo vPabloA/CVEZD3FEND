@@ -23,12 +23,18 @@ cd web && npm run dev
 
 ## Pages
 
-- `/` — Home / Search (`pages/HomePage.tsx`)
+- `/` — Launch surface and bundle search (`pages/HomePage.tsx`)
 - `/route/:routeId` — Route Navigator (`pages/RoutePage.tsx`)
 - `/node/:nodeId` — Node Detail (`pages/NodeDetailPage.tsx`)
 - `/coverage` — Defensive Coverage (`pages/CoveragePage.tsx`)
 - `/soc-action-pack/:id` — SOC Action Pack (`pages/SocActionPackPage.tsx`)
 - `/ai-review` — AI Review Queue (`pages/AiReviewPage.tsx`)
+- `/analyze` — Reasoning Workbench (`pages/AnalyzePage.tsx`) — see
+  [Reasoning Workbench](#reasoning-workbench) below.
+
+The primary header now keeps only the product identity and one main action
+(`Analizar CVE` or `Inicio`). Secondary surfaces like coverage and AI review
+remain reachable, but they are no longer framed as competing top-level modules.
 
 ## Key library modules
 
@@ -37,8 +43,21 @@ cd web && npm run dev
 - `lib/graphWindow.ts` — enforces the 40-node initial render cap and
   "expand"/"show more" increments (UIX_CONTRACT §1).
 - `lib/colors.ts` — canonical/inferred/gap/evidence/offense/defense/template
-  color tokens (UIX_CONTRACT §4).
+  color tokens (UIX_CONTRACT §4), plus the reasoning-classification, risk-level
+  and source-mode tokens used by the Reasoning Workbench (UIX_CONTRACT §4a).
 - `lib/url.ts` — syncs search/filter/route state to the URL query string.
+- `lib/reasoningTypes.ts` — TypeScript types mirroring the reasoning engine's
+  Python models (`ReasoningResult`, `ReasoningEdge`, `RiskSummary`,
+  `ReasoningRouteContract`, `ReasoningNarrative`, SOC/Detection/Hunting/CTEM,
+  `ReasoningExports`, `EnrichmentResult`, `HumanReview`, etc).
+- `lib/api.ts` — optional FastAPI sidecar client (`CVEzD3FEND api`); every
+  call is best-effort and callers must handle rejection (no dead buttons).
+  Includes the reasoning-plane endpoints: `getMeta`, `enrichCve`, `reasonCve`,
+  `getProvenance`, `getEvidence`, `proposeRoute`, `validateRoute`,
+  `promoteEdge`.
+- `hooks/useReasoning.ts` — `useApiAvailability()` (health/meta polling with
+  honest degraded state) and `useReasoning(cveId, enabled)` (loading/error/
+  result for `/api/reason/:cveId`).
 
 ## Components
 
@@ -49,6 +68,8 @@ cd web && npm run dev
 - `SocActionPackView`
 - `AiCandidateCard`
 - `LoadingState`, `EmptyState`, `ErrorState`
+- `components/reasoning/*` — see
+  [Reasoning Workbench](#reasoning-workbench) below.
 
 ## Conventions
 
@@ -57,3 +78,117 @@ cd web && npm run dev
 - Every scrollable list/panel sets `max-h-*` + `overflow-y-auto`.
 - Color usage follows `lib/colors.ts` exclusively — no inline hex outside that
   module.
+
+## Reasoning Workbench
+
+`/analyze` (`pages/AnalyzePage.tsx`) is the CVEzD3FEND Single Pane of Glass
+for attack surface reasoning and graph navigation. It still runs the live
+enrichment + reasoning engine for a single CVE, but the hierarchy is now
+operational instead of contract-first:
+
+- Default state: one CVE input, explanatory copy, and optional advanced access.
+- Top command bar: CVE input, Analyze/Refresh, reviewer identity, source/state
+  indicators.
+- Left rail: route entities, node-type counts, evidence classification counts,
+  selected-node focus.
+- Center: API-derived route graph, with the canonical/partial path,
+  classified edges, selected-node highlighting, and focused context.
+- Right rail: analyst-readable narrative, Tier 1 action, review/uncertainty,
+  compact risk signal, and governed AI review controls.
+- Bottom drawer: provenance, evidence, reasoning trace, SOC/Detection/Hunting/
+  CTEM, exports, and raw details behind intentional disclosure.
+
+The first viewport should answer what CVE is being analyzed, what route is
+highlighted, what the reasoning engine concludes, what Tier 1 should do now,
+what requires human review, and what evidence supports or weakens the route.
+Full reviewer/engineering detail remains available without dominating the
+default experience.
+
+### API availability & degraded state
+
+The page depends on the optional API sidecar (`CVEzD3FEND api`,
+`src/CVEzD3FEND/api/app.py`). `useApiAvailability()` checks `/api/health` and
+`/api/meta`:
+
+- **Unreachable** — shows a degraded banner with the exact CLI command to
+  start the sidecar and a "Check again" retry. No reasoning request is
+  attempted, and nothing is faked.
+- **Reachable but `reasoning_available: false`** — shows a warning banner;
+  the page still renders whatever the API can provide, honestly labeled.
+- **Available** — normal workbench renders.
+
+### Components (`components/reasoning/`)
+
+- `CveAnalyzeForm` — CVE id input + Analyze submit, synced to `?cve=` in the
+  URL (UIX_CONTRACT §5).
+- `SourceModeBadge` — shows whether enrichment data is `live`, `cached`, or
+  `offline` (`SOURCE_MODE_LABELS`/`sourceModeClass`).
+- `HumanReviewBanner` — `role="alert"` banner shown only when
+  `human_review.required` is true, with the reason from the engine.
+- `EdgeClassificationBadge` — renders one of the 7
+  `ReasoningEdgeClassification` levels (UIX_CONTRACT §4a).
+- `ReasoningRouteGraph` — central graph surface built from
+  `ReasoningResult.route` and `ReasoningResult.edges`; it renders the focused
+  CVE -> CWE -> CAPEC -> ATT&CK -> D3FEND route or an honest partial route
+  when the canonical chain is incomplete.
+- `EntityNavigationPanel` — left-side graph navigation and filter context:
+  route chips, node-type counts, classification counts, selected-node actions.
+- `AdvancedEvidenceDrawer` — bottom evidence drawer for provenance summary,
+  evidence reasoning, trace, SOC/Detection/Hunting/CTEM detail, exports, and
+  raw payload. Raw JSON is not mounted until the "Raw details" disclosure is
+  opened.
+- `ReasoningEdgesList` — bounded (40 + "Show 20 more") list of classified
+  edges. It can still render per-edge promotion in isolated reviewer contexts,
+  but `/analyze` uses the governed single-promotion control in `AiReasoningActions`
+  to avoid repeated action buttons.
+- `ProvenancePanel` — groups the reasoning result's `provenance` map by
+  source into collapsible sections, each rendered via `ReasoningEdgesList`.
+- `RiskSummaryPanel`, `NarrativePanel`, `RouteContractPanel` — risk facts
+  (CVSS/EPSS/KEV/exploitability), the engine's Spanish narrative in product
+  language ("Narrativa", "Ruta", "Por qué importa", "Confianza y riesgo"),
+  and the six route-contract buckets (canonical/primary/secondary/conditional/
+  defensive/weak-fit) as links into the knowledge bundle.
+- `ActionListPanel` — generic renderer reused for the SOC Action Pack,
+  Detection Engineering, and Threat Hunting panels.
+- `CtemPanel` — CTEM plan (priority, remediation actions, validation steps,
+  residual risk).
+- `ExportsPanel` — markdown/tree/mermaid export previews with copy/download.
+- `AiReasoningActions` — "Propose route (AI)" / "Validate route" buttons
+  (AI_ASSISTANCE_CONTRACT: AI proposes, the engine validates
+  deterministically); disabled with an inline "API offline" message when the
+  sidecar is unavailable. In the Single Pane of Glass it also owns the one
+  governed "Promote selected edge" action, gated on reviewer identity and only
+  shown when there is actually a reviewable edge. Results render as visible
+  facts via `KeyFacts`, never as hidden reasoning or raw model dumps.
+- `KeyFacts` — generic, depth-limited renderer for heterogeneous
+  `Record<string, unknown>` facts (CVSS/EPSS/KEV shapes, AI responses).
+
+### Human review & promotion
+
+If `human_review.required` is true, `HumanReviewBanner` surfaces the reason
+as a `role="alert"` using the product label "Requiere revisión". Edges
+classified as needing review can be promoted to canonical via
+`POST /api/review/promote-edge`, but `/analyze` presents this as one governed
+review action in the AI Review panel. The action stays disabled until the
+operator enters their name in the "Reviewer name" field (persisted to
+`localStorage` under `cvezd3fend:reviewer`). This mirrors the AI Review
+Queue's promote/reject flow and the AI_ASSISTANCE_CONTRACT while avoiding a
+repeated "Promote" button under every edge.
+
+## Testing
+
+The web app uses Vitest + jsdom + `@testing-library/react`
+(`vite.config.ts` `test` block, `src/test/setup.ts`). Run the suite with:
+
+```bash
+cd web && npm run test
+```
+
+Fixtures for reasoning/bundle data live in `src/test/fixtures/` and are
+**test-only** — production components never hardcode CVEs, narratives,
+edges, findings, graph examples, or AI responses (see
+`src/test/AnalyzePage.test.tsx` and `src/test/reasoningComponents.test.tsx`
+for coverage of loading/error/degraded/success states, the graph-centered
+single pane, evidence drawer, human-review banner, provenance visibility,
+SOC/Detection/Hunting/CTEM panels, the AI-disabled state, and the governed
+reviewer-name requirement for promotion).
