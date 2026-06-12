@@ -9,7 +9,7 @@ import CveAnalyzeForm from "@/components/reasoning/CveAnalyzeForm";
 import EntityNavigationPanel from "@/components/reasoning/EntityNavigationPanel";
 import HumanReviewBanner from "@/components/reasoning/HumanReviewBanner";
 import NarrativePanel from "@/components/reasoning/NarrativePanel";
-import ReasoningRouteGraph from "@/components/reasoning/ReasoningRouteGraph";
+import ThreatDefenseGraphNavigator from "@/components/reasoning/graph/ThreatDefenseGraphNavigator";
 import RiskSummaryPanel from "@/components/reasoning/RiskSummaryPanel";
 import SourceModeBadge from "@/components/reasoning/SourceModeBadge";
 import { useApiAvailability, useReasoning } from "@/hooks/useReasoning";
@@ -62,6 +62,7 @@ function ReasoningResultView({
   onReviewerChange: (value: string) => void;
 }) {
   const [selectedNode, setSelectedNode] = useState<string | null>(result.route.canonical_chain[0] ?? result.normalized_input ?? result.input);
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const cveLabel = result.normalized_input || result.input;
   const riskLevel = riskLevelFromScore(baseScore(result), kevListed(result));
   const routeLabel = result.route.canonical_chain.length > 0 ? result.route.canonical_chain.join(" -> ") : "Partial route";
@@ -69,6 +70,7 @@ function ReasoningResultView({
 
   useEffect(() => {
     setSelectedNode(result.route.canonical_chain[0] ?? result.normalized_input ?? result.input);
+    setSelectedEdge(null);
   }, [result]);
 
   return (
@@ -111,11 +113,28 @@ function ReasoningResultView({
         <EntityNavigationPanel
           result={result}
           selectedNode={selectedNode}
-          onSelectNode={(nodeId) => setSelectedNode(nodeId || null)}
+          onSelectNode={(nodeId) => {
+            setSelectedNode(nodeId || null);
+            setSelectedEdge(null);
+          }}
         />
 
         <main className="min-w-0">
-          <ReasoningRouteGraph result={result} selectedNode={selectedNode} onSelectNode={setSelectedNode} />
+          <ThreatDefenseGraphNavigator
+            result={result}
+            selection={selectedEdge ? { kind: "edge", id: selectedEdge } : selectedNode ? { kind: "node", id: selectedNode } : null}
+            onSelectNode={(nodeId) => {
+              setSelectedNode(nodeId);
+              setSelectedEdge(null);
+            }}
+            onSelectEdge={(edgeId) => {
+              setSelectedEdge(edgeId || null);
+            }}
+            onClearSelection={() => {
+              setSelectedNode(result.route.canonical_chain[0] ?? result.normalized_input ?? result.input);
+              setSelectedEdge(null);
+            }}
+          />
         </main>
 
         <aside className="flex min-w-0 flex-col gap-4 xl:sticky xl:top-24 xl:max-h-[calc(100vh-7rem)] xl:overflow-auto">

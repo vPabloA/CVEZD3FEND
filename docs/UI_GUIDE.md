@@ -91,8 +91,9 @@ operational instead of contract-first:
   indicators.
 - Left rail: route entities, node-type counts, evidence classification counts,
   selected-node focus.
-- Center: API-derived route graph, with the canonical/partial path,
-  classified edges, selected-node highlighting, and focused context.
+- Center: the Threat-Defense Knowledge Graph Navigator, with the
+  canonical/partial path, classified edges, selected-node/edge highlighting,
+  mitigation emphasis, graph modes, and focused context.
 - Right rail: analyst-readable narrative, Tier 1 action, review/uncertainty,
   compact risk signal, and governed AI review controls.
 - Bottom drawer: provenance, evidence, reasoning trace, SOC/Detection/Hunting/
@@ -128,11 +129,22 @@ The page depends on the optional API sidecar (`CVEzD3FEND api`,
 - `EdgeClassificationBadge` — renders one of the 7
   `ReasoningEdgeClassification` levels (UIX_CONTRACT §4a).
 - `ReasoningRouteGraph` — central graph surface built from
-  `ReasoningResult.route` and `ReasoningResult.edges`; it renders the focused
+  `ReasoningResult.route` and `ReasoningResult.edges`; it now delegates to the
+  Threat-Defense Knowledge Graph Navigator and preserves the focused
   CVE -> CWE -> CAPEC -> ATT&CK -> D3FEND route or an honest partial route
   when the canonical chain is incomplete.
 - `EntityNavigationPanel` — left-side graph navigation and filter context:
   route chips, node-type counts, classification counts, selected-node actions.
+- `ThreatDefenseGraphNavigator` — premium semantic graph surface inside
+  Analyze. It supports focused route / reasoning neighborhood / mitigation
+  path / full traceability / evidence modes, zoom and pan, fit/reset controls,
+  compact classification filters, hover tooltips, node and edge selection, a
+  right-hand inspector, and official-source navigation when a stable URL can
+  be derived safely. Graph-level notices explain empty, edge-less, partial,
+  unavailable, or filter-hidden selection states without falling back to a raw
+  contract dump.
+- `graph/*` — product-owned adapters, URL builders, path highlighting, and
+  graph-mode controls for the navigator.
 - `AdvancedEvidenceDrawer` — bottom evidence drawer for provenance summary,
   evidence reasoning, trace, SOC/Detection/Hunting/CTEM detail, exports, and
   raw payload. Raw JSON is not mounted until the "Raw details" disclosure is
@@ -162,6 +174,8 @@ The page depends on the optional API sidecar (`CVEzD3FEND api`,
   facts via `KeyFacts`, never as hidden reasoning or raw model dumps.
 - `KeyFacts` — generic, depth-limited renderer for heterogeneous
   `Record<string, unknown>` facts (CVSS/EPSS/KEV shapes, AI responses).
+- `ThreatDefenseGraphNavigator` uses compact canvas labels by default and
+  pushes detail into the inspector to keep the first viewport readable.
 
 ### Human review & promotion
 
@@ -174,6 +188,30 @@ operator enters their name in the "Reviewer name" field (persisted to
 `localStorage` under `cvezd3fend:reviewer`). This mirrors the AI Review
 Queue's promote/reject flow and the AI_ASSISTANCE_CONTRACT while avoiding a
 repeated "Promote" button under every edge.
+
+### Graph behavior
+
+- Default graph mode: `Focused Route`.
+- The graph exposes hover tooltips, selection focus, fit/reset, and a small
+  classification filter set rather than a long control wall.
+- Empty/degraded states are graph-level and product-worded: no graphable route,
+  no relationships, partial route, graph data unavailable, or selected node/
+  edge hidden by active filters.
+- `Mitigation Path` mode makes the attack-to-defense route explicit by
+  strengthening defensive edges, adding defensive glow, dimming unrelated
+  context, and adding inspector language that explains the route from offensive
+  reasoning toward D3FEND/defensive action.
+- Official-source links open NVD, MITRE CWE, MITRE CAPEC, MITRE ATT&CK or
+  MITRE D3FEND when the identifier can be mapped safely. D3FEND links are not
+  invented from uncertain abbreviations such as `D3-EFA`; they render only for
+  trusted provided URLs, explicit local mappings, or already-resolvable
+  `d3f:*` identifiers.
+- The graph runtime normalizes `source`/`target` through helper functions
+  because `react-force-graph-2d` mutates link endpoints from string ids into
+  node objects after simulation starts. Edge selection, inspector focus, path
+  highlighting, and mitigation detection must read IDs through those helpers.
+- Reduced-motion users still get a readable node/edge canvas because the
+  inspector and tooltips carry the semantic detail.
 
 ## Testing
 
