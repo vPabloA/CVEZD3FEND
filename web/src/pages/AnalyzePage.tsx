@@ -92,12 +92,12 @@ function ReasoningResultView({
   onPromote: (edgeId: string) => void;
   onReviewerChange: (value: string) => void;
 }) {
-  const [selectedNode, setSelectedNode] = useState<string | null>(result.route.canonical_chain[0] ?? result.normalized_input ?? result.input);
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const riskLevel = riskLevelFromScore(baseScore(result), kevListed(result));
 
   useEffect(() => {
-    setSelectedNode(result.route.canonical_chain[0] ?? result.normalized_input ?? result.input);
+    setSelectedNode(null);
     setSelectedEdge(null);
   }, [result]);
 
@@ -125,7 +125,7 @@ function ReasoningResultView({
               setSelectedEdge(edgeId || null);
             }}
             onClearSelection={() => {
-              setSelectedNode(result.route.canonical_chain[0] ?? result.normalized_input ?? result.input);
+              setSelectedNode(null);
               setSelectedEdge(null);
             }}
           />

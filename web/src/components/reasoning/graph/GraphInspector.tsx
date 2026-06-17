@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { REASONING_CLASSIFICATION_LABELS, classificationClass, classificationNeedsReview } from "@/lib/colors";
 import { buildOfficialUrl } from "./officialUrlBuilder";
 import { graphLinkSourceId, graphLinkTargetId } from "./graphRuntime";
-import type { GraphLinkData, GraphNodeData, GraphSelection } from "./graphTypes";
+import type { GraphLinkData, GraphNodeData, GraphRouteRole, GraphSelection } from "./graphTypes";
 import type { ReasoningEdge } from "@/lib/reasoningTypes";
 
 function copyText(value: string) {
@@ -17,11 +17,59 @@ function relatedEdges(resultEdges: ReasoningEdge[], nodeId: string): ReasoningEd
   return resultEdges.filter((edge) => edge.source === nodeId || edge.target === nodeId).slice(0, 5);
 }
 
+// Analyst-language readings — the inspector explains the trace, it does not
+// dump contract fields.
+const ROLE_NARRATIVE: Record<GraphRouteRole, string> = {
+  canonical: "On the canonical spine — the validated step in the CVE → CWE → CAPEC → ATT&CK → D3FEND trace.",
+  primary: "Primary route node: it directly supports the main attack-to-defense reading.",
+  secondary: "Secondary route node: adds context around the primary trace without changing its conclusion.",
+  conditional: "Branch that applies only when its stated precondition holds — treat it as a candidate trace to validate.",
+  defensive: "Defensive path node: part of the actionable countermeasure set for this route.",
+  "weak-fit": "Weak-fit relation kept for completeness; structural confidence is low and review is expected.",
+  context: "Context signal: useful background, not part of the route conclusion.",
+};
+
+const KIND_WHY: Record<GraphNodeData["kind"], string> = {
+  cve: "Entry point of the trace — the vulnerability under analysis.",
+  cwe: "Names the underlying weakness this CVE exploits; anchors the rest of the trace.",
+  capec: "Describes the offensive pattern an adversary would use against that weakness.",
+  attack: "Maps the pattern to observed adversary behavior — this is what detection and hunting key on.",
+  defend: "Defensive destination: a D3FEND countermeasure to implement or verify against this route.",
+  control: "Operational control that can break or contain this route.",
+  mitigation: "Mitigation action on the path from attack reasoning to defense.",
+  detection: "Detection opportunity derived from this route.",
+  evidence: "Evidence backing one or more relations in the trace.",
+  gap: "Coverage gap: something the route needs that is not in place.",
+  candidate: "AI-proposed relation awaiting human review.",
+  context: "Surrounding knowledge linked to the route.",
+};
+
+function nodeCveRelation(nodeId: string, routeChain: string[], resultEdges: ReasoningEdge[]): string | null {
+  const rootCve = routeChain[0];
+  if (!rootCve) return null;
+  if (nodeId === rootCve) return null;
+  const step = routeChain.indexOf(nodeId);
+  if (step >= 0) return `Trace step ${step + 1} of ${routeChain.length} from ${rootCve}.`;
+  const degree = resultEdges.filter((edge) => edge.source === nodeId || edge.target === nodeId).length;
+  return degree > 0 ? `Off-spine node connected to the ${rootCve} route by ${degree} relation${degree === 1 ? "" : "s"}.` : null;
+}
+
+function edgeTraceReading(link: GraphLinkData, routeChain: string[], sourceId: string, targetId: string): string {
+  const chainIndex = routeChain.indexOf(sourceId);
+  const onSpine = chainIndex >= 0 && routeChain[chainIndex + 1] === targetId;
+  if (onSpine) return "Canonical spine segment of the active trace.";
+  if (link.conditional) return "Branch segment that holds only under its stated condition.";
+  if (link.weakFit) return "Weak-fit segment — kept for completeness, expect human review.";
+  if (link.inferred) return "Inferred segment proposed by the reasoning engine.";
+  return "Supporting segment off the canonical spine.";
+}
+
 export default function GraphInspector({
   selection,
   nodes,
   links,
   resultEdges,
+  routeChain = [],
   mitigationNodeIds,
   mitigationLinkIds,
   onFocusNode,
@@ -32,6 +80,7 @@ export default function GraphInspector({
   nodes: GraphNodeData[];
   links: GraphLinkData[];
   resultEdges: ReasoningEdge[];
+  routeChain?: string[];
   mitigationNodeIds: Set<string>;
   mitigationLinkIds: Set<string>;
   onFocusNode: (nodeId: string) => void;
@@ -91,6 +140,18 @@ export default function GraphInspector({
               {selectedNodeMitigation && <span className="rounded-full border border-defense bg-green-50 px-2 py-0.5 text-[11px] font-semibold text-defense">Mitigation</span>}
             </div>
             <p className="mt-2 text-sm leading-relaxed text-slate-300">{selectedNode.description}</p>
+            <div className="mt-2 grid gap-1.5 text-sm leading-relaxed">
+              <p className="text-slate-300">
+                <span className="font-semibold text-slate-200">Role in trace:</span> {ROLE_NARRATIVE[selectedNode.routeRole]}
+              </p>
+              <p className="text-slate-400">
+                <span className="font-semibold text-slate-300">Why it matters:</span> {KIND_WHY[selectedNode.kind]}
+              </p>
+              {nodeCveRelation(selectedNode.id, routeChain, resultEdges) && (
+                <p className="text-slate-400">{nodeCveRelation(selectedNode.id, routeChain, resultEdges)}</p>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-slate-400">Confidence {selectedNode.confidence.toFixed(2)}</p>
             {selectedNodeMitigation && (
               <p className="mt-2 rounded-lg border border-defense/40 bg-green-950/30 px-2 py-1.5 text-sm text-green-100">
                 Mitigation relevance: this node participates in the path from attack reasoning to defensive action.
@@ -201,6 +262,9 @@ export default function GraphInspector({
             </div>
             <p className="mt-2 text-sm leading-relaxed text-slate-300">{selectedLink.label}</p>
             <p className="mt-1 text-xs text-slate-400">Confidence {selectedLink.confidence.toFixed(2)} · {selectedLink.type}</p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-300">
+              <span className="font-semibold text-slate-200">Role in trace:</span> {edgeTraceReading(selectedLink, routeChain, selectedLinkSourceId, selectedLinkTargetId)}
+            </p>
             {selectedLinkMitigation && (
               <p className="mt-2 rounded-lg border border-defense/40 bg-green-950/30 px-2 py-1.5 text-sm text-green-100">
                 Mitigation relevance: this edge moves the route from offensive reasoning toward D3FEND or defensive action.

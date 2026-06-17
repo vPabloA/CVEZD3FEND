@@ -8,6 +8,7 @@ import { buildOfficialUrl } from "@/components/reasoning/graph/officialUrlBuilde
 import { buildGraphModel } from "@/components/reasoning/graph/graphAdapter";
 import { graphLinkSourceId, graphLinkTargetId, graphNodeId } from "@/components/reasoning/graph/graphRuntime";
 import { buildHighlightState } from "@/components/reasoning/graph/pathHighlighting";
+import { applyTraceLayout, traceLayerIdForNode, traceLayerIndexForKind } from "@/components/reasoning/graph/traceLayout";
 import type { GraphSelection } from "@/components/reasoning/graph/graphTypes";
 import type { ReasoningResult } from "@/lib/reasoningTypes";
 import { makeReasoningResult } from "@/test/fixtures/reasoningResult";
@@ -20,7 +21,7 @@ function GraphHarness({
   initialSelection?: GraphSelection;
 }) {
   const [selectedNode, setSelectedNode] = React.useState<string | null>(
-    initialSelection?.kind === "node" ? initialSelection.id : result.route.canonical_chain[0] ?? result.normalized_input ?? result.input
+    initialSelection?.kind === "node" ? initialSelection.id : null
   );
   const [selectedEdge, setSelectedEdge] = React.useState<string | null>(initialSelection?.kind === "edge" ? initialSelection.id : null);
 
@@ -34,7 +35,7 @@ function GraphHarness({
       }}
       onSelectEdge={(edgeId) => setSelectedEdge(edgeId || null)}
       onClearSelection={() => {
-        setSelectedNode(result.route.canonical_chain[0] ?? result.normalized_input ?? result.input);
+        setSelectedNode(null);
         setSelectedEdge(null);
       }}
     />
@@ -100,6 +101,79 @@ describe("graph utilities", () => {
     expect(highlights.focusedLinks.has("edge-2")).toBe(true);
   });
 
+  it("pins nodes to semantic trace lanes with the canonical spine on the top row", () => {
+    const result = makeReasoningResult();
+    const model = buildGraphModel(result, "focused-route", null);
+    const nodes = model.nodes.map((node) => ({ ...node }));
+    const plan = applyTraceLayout(nodes, model.routeChain);
+
+    // Left → right semantic ordering: CVE before CWE before CAPEC before ATT&CK before D3FEND.
+    expect(traceLayerIndexForKind("cve")).toBeLessThan(traceLayerIndexForKind("cwe"));
+    expect(traceLayerIndexForKind("cwe")).toBeLessThan(traceLayerIndexForKind("capec"));
+    expect(traceLayerIndexForKind("capec")).toBeLessThan(traceLayerIndexForKind("attack"));
+    expect(traceLayerIndexForKind("attack")).toBeLessThan(traceLayerIndexForKind("defend"));
+    expect(traceLayerIndexForKind("defend")).toBeLessThan(traceLayerIndexForKind("context"));
+    // Mitigations/controls share the defensive lane.
+    expect(traceLayerIndexForKind("mitigation")).toBe(traceLayerIndexForKind("defend"));
+
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const cve = byId.get("CVE-2024-0001")!;
+    const cwe = byId.get("CWE-89")!;
+    const capec = byId.get("CAPEC-66")!;
+    const attack = byId.get("T1190")!;
+    const defend = byId.get("D3-IOPR")!;
+
+    // Every node is pinned, and the canonical chain reads strictly left → right on the top row.
+    nodes.forEach((node) => {
+      expect(node.fx).toEqual(expect.any(Number));
+      expect(node.fy).toEqual(expect.any(Number));
+    });
+    expect(cve.fx!).toBeLessThan(cwe.fx!);
+    expect(cwe.fx!).toBeLessThan(capec.fx!);
+    expect(capec.fx!).toBeLessThan(attack.fx!);
+    expect(attack.fx!).toBeLessThan(defend.fx!);
+    [cve, cwe, capec, attack, defend].forEach((node) => expect(node.fy).toBe(0));
+
+    // Off-spine alternatives stack below the canonical row in the same lane.
+    const weakFit = byId.get("CAPEC-7")!;
+    expect(weakFit.fx).toBe(capec.fx);
+    expect(weakFit.fy!).toBeGreaterThan(capec.fy!);
+
+    // The defensive lane is flagged so the stage can tint the D3FEND band.
+    const defensiveLane = plan.lanes.find((lane) => lane.layer.defensive);
+    expect(defensiveLane).toBeDefined();
+    expect(defensiveLane!.nodeCount).toBeGreaterThan(0);
+  });
+
+  it("keeps route-role defensive nodes in the D3FEND lane even without a D3 id", () => {
+    const result = makeReasoningResult({
+      route: {
+        canonical_chain: ["CVE-2024-0001"],
+        primary_nodes: [],
+        secondary_nodes: [],
+        conditional_nodes: [],
+        defensive_nodes: ["parcheo o configuración segura"],
+        weak_fit_nodes: [],
+      },
+      edges: [
+        {
+          ...makeReasoningResult().edges[0],
+          id: "edge-defense-intent",
+          source: "CVE-2024-0001",
+          target: "parcheo o configuración segura",
+          type: "defensive_intent",
+          classification: "unverified",
+        },
+      ],
+    });
+    const model = buildGraphModel(result, "focused-route", null);
+    const defenseNode = model.nodes.find((node) => node.id === "parcheo o configuración segura")!;
+
+    expect(defenseNode.kind).toBe("context");
+    expect(defenseNode.routeRole).toBe("defensive");
+    expect(traceLayerIdForNode(defenseNode)).toBe("defend");
+  });
+
   it("emphasizes defensive/D3FEND relationships in mitigation path mode", () => {
     const result = makeReasoningResult();
     const model = buildGraphModel(result, "mitigation-path", null);
@@ -120,7 +194,7 @@ describe("ThreatDefenseGraphNavigator", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText("Threat-Defense Knowledge Graph Navigator")).toBeInTheDocument();
+    expect(screen.getByText("Threat-Defense Trace Graph Navigator")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /focused route/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /fit view/i })).toBeInTheDocument();
     expect(screen.getByTestId("force-graph-2d")).toBeInTheDocument();
@@ -138,6 +212,22 @@ describe("ThreatDefenseGraphNavigator", () => {
     expect(within(inspector).getByText(/CWE-89 → CAPEC-66/)).toBeInTheDocument();
     expect(within(inspector).getByText("Analytical (AI)")).toBeInTheDocument();
     expect(within(inspector).getByRole("button", { name: /focus source/i })).toBeInTheDocument();
+  });
+
+  it("clears the active inspector without snapping back to the route root", async () => {
+    render(
+      <MemoryRouter>
+        <GraphHarness />
+      </MemoryRouter>
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Trace step 1: CVE-2024-0001" }));
+    expect(await screen.findByText("Selected node")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+
+    expect(screen.queryByText("Selected node")).not.toBeInTheDocument();
+    expect(screen.queryByText("Selected edge")).not.toBeInTheDocument();
   });
 
   it("renders clear empty and partial graph states", () => {
@@ -193,6 +283,107 @@ describe("ThreatDefenseGraphNavigator", () => {
     );
 
     expect(screen.getByText("This route is partial. Defensive intent is available, but no canonical CWE/CAPEC chain was found.")).toBeInTheDocument();
+  });
+
+  it("cherry-picks trace steps from the route spine chips", async () => {
+    render(
+      <MemoryRouter>
+        <GraphHarness />
+      </MemoryRouter>
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Trace step 2: CWE-89" }));
+
+    const nodeInspector = await screen.findByText("Selected node");
+    const nodePanel = nodeInspector.closest("aside")!;
+    expect(within(nodePanel).getByText("CWE-89")).toBeInTheDocument();
+    expect(within(nodePanel).getByText(/Role in trace:/)).toBeInTheDocument();
+  });
+
+  it("parks condition-dependent edges off-stage when primary route emphasis is active", async () => {
+    render(
+      <MemoryRouter>
+        <GraphHarness />
+      </MemoryRouter>
+    );
+
+    // edge-3 is the conditional T1190 → D3-NTA relation.
+    expect(screen.getByRole("button", { name: "edge-3" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "D3-NTA" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Primary route" }));
+
+    expect(screen.queryByRole("button", { name: "edge-3" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "D3-NTA" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "edge-1" })).toBeInTheDocument();
+  });
+
+  it("hides off-route context/evidence nodes behind the context toggle", async () => {
+    const base = makeReasoningResult();
+    const result = makeReasoningResult({
+      edges: [
+        ...base.edges,
+        {
+          ...base.edges[0],
+          id: "edge-evidence",
+          source: "T1190",
+          target: "EVID-WAF",
+          type: "supported_by",
+          classification: "dataset_derived",
+        },
+      ],
+    });
+
+    render(
+      <MemoryRouter>
+        <GraphHarness result={result} />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole("button", { name: "EVID-WAF" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Hide context" }));
+
+    expect(screen.queryByRole("button", { name: "EVID-WAF" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show context" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Show context" }));
+    expect(screen.getByRole("button", { name: "EVID-WAF" })).toBeInTheDocument();
+  });
+
+  it("does not hide operational defensive nodes when context is parked", async () => {
+    const result = makeReasoningResult({
+      route: {
+        canonical_chain: ["CVE-2024-0001"],
+        primary_nodes: [],
+        secondary_nodes: [],
+        conditional_nodes: [],
+        defensive_nodes: ["parcheo o configuración segura"],
+        weak_fit_nodes: [],
+      },
+      edges: [
+        {
+          ...makeReasoningResult().edges[0],
+          id: "edge-defense-intent",
+          source: "CVE-2024-0001",
+          target: "parcheo o configuración segura",
+          type: "defensive_intent",
+          classification: "unverified",
+        },
+      ],
+    });
+
+    render(
+      <MemoryRouter>
+        <GraphHarness result={result} />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole("button", { name: "parcheo o configuración segura" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Hide context" }));
+
+    expect(screen.getByRole("button", { name: "parcheo o configuración segura" })).toBeInTheDocument();
   });
 
   it("explains when the selected edge is hidden by active filters", async () => {

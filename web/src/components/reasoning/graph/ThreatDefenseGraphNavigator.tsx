@@ -6,9 +6,10 @@ import { buildGraphModel } from "./graphAdapter";
 import GraphControls from "./GraphControls";
 import GraphInspector from "./GraphInspector";
 import GraphLegend from "./GraphLegend";
-import type { GraphLinkData, GraphMode, GraphNodeData, GraphSelection } from "./graphTypes";
+import type { GraphLayout, GraphLinkData, GraphMode, GraphNodeData, GraphRouteEmphasis, GraphSelection } from "./graphTypes";
 import { buildHighlightState } from "./pathHighlighting";
-import { graphLinkSourceId, graphLinkTargetId } from "./graphRuntime";
+import { graphLinkSourceId, graphLinkTargetId, isDefensiveGraphNode } from "./graphRuntime";
+import { applyTraceLayout, traceLayerIdForNode, type TraceLayoutPlan } from "./traceLayout";
 import type { ReasoningEdgeClassification, ReasoningResult } from "@/lib/reasoningTypes";
 
 const DEFAULT_CLASSIFICATIONS: ReasoningEdgeClassification[] = [
@@ -43,10 +44,49 @@ function classificationColor(classification: ReasoningEdgeClassification): strin
   return COLORS.template;
 }
 
+// Classification is never encoded with color alone (UIX_CONTRACT §7): solid
+// strokes for official/dataset edges, distinct dash patterns for everything
+// the reasoning plane inferred, conditioned or could not verify.
+function classificationDash(classification: ReasoningEdgeClassification): number[] | null {
+  switch (classification) {
+    case "official_explicit":
+    case "official_incomplete":
+    case "dataset_derived":
+      return null;
+    case "analytical_inferred":
+      return [6, 3];
+    case "conditional":
+      return [5, 4];
+    case "weak_fit":
+      return [2, 3];
+    case "unverified":
+      return [2, 5];
+  }
+  return null;
+}
+
+function classificationStrokeWeight(classification: ReasoningEdgeClassification): number {
+  switch (classification) {
+    case "official_explicit":
+      return 1.35;
+    case "official_incomplete":
+    case "dataset_derived":
+      return 1.18;
+    case "analytical_inferred":
+      return 1.05;
+    case "conditional":
+      return 0.95;
+    case "weak_fit":
+    case "unverified":
+      return 0.82;
+  }
+  return 1;
+}
+
 function nodeColor(node: GraphNodeData): string {
   if (node.routeRole === "weak-fit") return COLORS.template;
   if (node.routeRole === "conditional") return COLORS.conditional;
-  if (node.kind === "defend" || node.kind === "control" || node.kind === "mitigation") return COLORS.defense;
+  if (node.routeRole === "defensive" || node.kind === "defend" || node.kind === "control" || node.kind === "mitigation") return COLORS.defense;
   if (node.kind === "attack" || node.kind === "capec") return COLORS.offense;
   if (node.kind === "evidence") return COLORS.evidence;
   if (node.kind === "gap") return COLORS.gap;
@@ -66,6 +106,10 @@ function hasFullRoute(chain: string[], nodes: GraphNodeData[]): boolean {
   return ["cve", "cwe", "capec", "attack", "defend"].every((kind) => routeKinds.has(kind as GraphNodeData["kind"]));
 }
 
+function isSecondaryEmphasisLink(link: GraphLinkData): boolean {
+  return link.conditional || link.weakFit || link.classification === "conditional" || link.classification === "weak_fit" || link.classification === "unverified";
+}
+
 export default function ThreatDefenseGraphNavigator({
   result,
   selection,
@@ -82,22 +126,27 @@ export default function ThreatDefenseGraphNavigator({
   const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const autoFittedRef = useRef(false);
+  const layoutPlanRef = useRef<TraceLayoutPlan | null>(null);
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number } | null>(null);
   const [mode, setMode] = useState<GraphMode>("focused-route");
+  const [layout, setLayout] = useState<GraphLayout>("trace");
+  const [routeEmphasis, setRouteEmphasis] = useState<GraphRouteEmphasis>("all");
+  const [showContext, setShowContext] = useState(true);
   const [classificationFilters, setClassificationFilters] = useState<Set<ReasoningEdgeClassification>>(new Set(DEFAULT_CLASSIFICATIONS));
   const [stabilized, setStabilized] = useState(false);
   const classificationFilterKey = [...classificationFilters].sort().join("|");
   const selectionFilterKey = selection ? `${selection.kind}:${selection.id}` : "none";
+  const viewKey = `${layout}|${routeEmphasis}|${showContext}`;
   const mitigationMode = mode === "mitigation-path";
 
   useEffect(() => {
     setStabilized(false);
-  }, [result, mode, classificationFilterKey, selectionFilterKey]);
+  }, [result, mode, classificationFilterKey, selectionFilterKey, viewKey]);
 
-  // Re-frame the route once per data/mode change so the graph fills the stage.
+  // Re-frame the route once per data/mode/layout change so the graph fills the stage.
   useEffect(() => {
     autoFittedRef.current = false;
-  }, [result, mode, classificationFilterKey]);
+  }, [result, mode, classificationFilterKey, viewKey]);
 
   // react-force-graph sizes its canvas to the window by default; track the
   // stage container instead so the canvas always matches the visible frame.
@@ -116,16 +165,50 @@ export default function ThreatDefenseGraphNavigator({
 
   const graph = useMemo(() => buildGraphModel(result, mode, selection), [result, mode, selection]);
   const highlights = useMemo(() => buildHighlightState(graph, selection, mode), [graph, selection, mode]);
+  const routeChainSet = useMemo(() => new Set(graph.routeChain), [graph.routeChain]);
+
+  // Context cherry-picking: evidence/gap/candidate/context nodes can be parked
+  // off-stage without losing the trace itself.
+  const hiddenContextIds = useMemo(() => {
+    if (showContext) return new Set<string>();
+    const hidden = new Set<string>();
+    graph.nodes.forEach((node) => {
+      if (traceLayerIdForNode(node) !== "context") return;
+      if (routeChainSet.has(node.id)) return;
+      if (selection?.kind === "node" && selection.id === node.id) return;
+      hidden.add(node.id);
+    });
+    return hidden;
+  }, [graph.nodes, routeChainSet, selection, showContext]);
+
+  const hiddenBranchIds = useMemo(() => {
+    if (routeEmphasis === "all") return new Set<string>();
+    const hidden = new Set<string>();
+    graph.nodes.forEach((node) => {
+      const secondaryBranch = node.routeRole === "conditional" || node.routeRole === "weak-fit";
+      if (!secondaryBranch) return;
+      if (routeChainSet.has(node.id)) return;
+      if (selection?.kind === "node" && selection.id === node.id) return;
+      hidden.add(node.id);
+    });
+    return hidden;
+  }, [graph.nodes, routeChainSet, routeEmphasis, selection]);
+
+  const hiddenStageIds = useMemo(() => new Set([...hiddenContextIds, ...hiddenBranchIds]), [hiddenBranchIds, hiddenContextIds]);
 
   const renderedLinks = useMemo(
     () =>
-      graph.links.filter((link) => classificationFilters.has(link.classification)).map((link) => ({
-        ...link,
-        highlighted: highlights.highlightedLinks.has(link.id),
-        focused: highlights.focusedLinks.has(link.id),
-        mitigation: highlights.mitigationLinks.has(link.id),
-      })) as RenderedLink[],
-    [classificationFilters, graph.links, highlights.focusedLinks, highlights.highlightedLinks, highlights.mitigationLinks]
+      graph.links
+        .filter((link) => classificationFilters.has(link.classification))
+        .filter((link) => routeEmphasis === "all" || !isSecondaryEmphasisLink(link) || (selection?.kind === "edge" && selection.id === link.id))
+        .filter((link) => !hiddenStageIds.has(graphLinkSourceId(link)) && !hiddenStageIds.has(graphLinkTargetId(link)))
+        .map((link) => ({
+          ...link,
+          highlighted: highlights.highlightedLinks.has(link.id),
+          focused: highlights.focusedLinks.has(link.id),
+          mitigation: highlights.mitigationLinks.has(link.id),
+        })) as RenderedLink[],
+    [classificationFilters, graph.links, hiddenStageIds, highlights.focusedLinks, highlights.highlightedLinks, highlights.mitigationLinks, routeEmphasis, selection]
   );
 
   const renderedNodes = useMemo(() => {
@@ -140,18 +223,38 @@ export default function ThreatDefenseGraphNavigator({
       }
     });
     return graph.nodes
-      .filter((node) => visibleIds.has(node.id))
+      .filter((node) => visibleIds.has(node.id) && !hiddenStageIds.has(node.id))
       .map((node) => ({
         ...node,
         highlighted: highlights.highlightedNodes.has(node.id),
         focused: highlights.focusedNodes.has(node.id),
         mitigation: highlights.mitigationNodes.has(node.id),
       })) as RenderedNode[];
-  }, [graph.nodes, highlights.focusedNodes, highlights.highlightedNodes, highlights.mitigationNodes, renderedLinks]);
+  }, [graph.nodes, hiddenStageIds, highlights.focusedNodes, highlights.highlightedNodes, highlights.mitigationNodes, renderedLinks]);
+
+  // Trace layout: pin fresh node copies to semantic lanes (CVE → CWE → CAPEC →
+  // ATT&CK → D3FEND → context) so the stage reads as an attack-to-defense trace
+  // instead of a free-floating force cloud. Fresh copies per layout switch make
+  // react-force-graph re-stage the route (it diffs nodes by object identity);
+  // force layout stays available as an escape hatch.
+  const stagedData = useMemo(() => {
+    const nodes = renderedNodes.map((node) => ({ ...node }));
+    // Re-normalize endpoints to ids so d3 re-resolves them against the fresh
+    // node copies (react-force-graph mutates endpoints into object refs).
+    const links = renderedLinks.map((link) => ({ ...link, source: graphLinkSourceId(link), target: graphLinkTargetId(link) }));
+    if (layout === "trace") {
+      layoutPlanRef.current = applyTraceLayout(nodes, graph.routeChain);
+    } else {
+      layoutPlanRef.current = null;
+    }
+    return { nodes, links };
+  }, [graph.routeChain, layout, renderedLinks, renderedNodes]);
 
   const selectedNodeVisible = selection?.kind === "node" ? renderedNodes.some((node) => node.id === selection.id) : true;
   const selectedEdgeVisible = selection?.kind === "edge" ? renderedLinks.some((link) => link.id === selection.id) : true;
   const selectedHidden = Boolean(selection && (!selectedNodeVisible || !selectedEdgeVisible));
+  const offStageNodeCount = graph.hiddenNodeCount + Math.max(0, graph.nodes.length - renderedNodes.length);
+  const offStageLinkCount = graph.hiddenLinkCount + Math.max(0, graph.links.length - renderedLinks.length);
   const stateNotices = useMemo(() => {
     const notices: { tone: "info" | "warning"; text: string }[] = [];
     if (graph.nodes.length === 0 && result.errors.length > 0) {
@@ -187,37 +290,58 @@ export default function ThreatDefenseGraphNavigator({
     onSelectNode(graph.routeChain[0] ?? result.normalized_input ?? result.input);
     onSelectEdge("");
     setMode("focused-route");
+    setRouteEmphasis("all");
+    setShowContext(true);
     setClassificationFilters(new Set(DEFAULT_CLASSIFICATIONS));
     setStabilized(false);
     window.requestAnimationFrame(() => fitView());
   };
 
   const clearSelection = () => onClearSelection();
+  const hasSelectionFocus = Boolean(selection);
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl">
       <div className="border-b border-slate-800/80 bg-slate-950/90 px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Threat-Defense Knowledge Graph Navigator</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Threat-Defense Trace Graph Navigator</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-semibold text-slate-100">Ruta activa</h2>
+              <h2 className="text-base font-semibold text-slate-100">CVE → D3FEND trace</h2>
               <span className="rounded-full border border-sky-500/40 bg-sky-950/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-sky-300">
-                Interactive Knowledge Graph
+                Trace Explorer
               </span>
             </div>
             {graph.routeChain.length > 0 ? (
-              <div className="mt-2 flex flex-wrap items-center gap-1" title={graph.routeChain.join(" → ")}>
-                {graph.routeChain.map((id, index) => (
-                  <span key={id} className="flex items-center gap-1">
-                    <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-[11px] text-slate-300">{id}</span>
-                    {index < graph.routeChain.length - 1 && (
-                      <span className="text-slate-600" aria-hidden="true">
-                        →
-                      </span>
-                    )}
-                  </span>
-                ))}
+              <div className="mt-2 flex flex-wrap items-center gap-1" title={graph.routeChain.join(" → ")} aria-label="Trace cherry picker">
+                {graph.routeChain.map((id, index) => {
+                  const active = selection?.kind === "node" && selection.id === id;
+                  return (
+                    <span key={id} className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        aria-label={`Trace step ${index + 1}: ${id}`}
+                        aria-pressed={active}
+                        onClick={() => {
+                          onSelectNode(id);
+                          onSelectEdge("");
+                        }}
+                        className={`rounded border px-1.5 py-0.5 font-mono text-[11px] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-link ${
+                          active
+                            ? "border-sky-400 bg-sky-950/70 text-sky-200 shadow-[0_0_8px_rgba(56,189,248,0.35)]"
+                            : "border-slate-700 bg-slate-900 text-slate-300 hover:border-sky-500/60 hover:text-sky-200"
+                        }`}
+                      >
+                        {id}
+                      </button>
+                      {index < graph.routeChain.length - 1 && (
+                        <span className="text-slate-600" aria-hidden="true">
+                          →
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
               </div>
             ) : (
               <p className="mt-2 font-mono text-xs text-slate-400">Partial route from available reasoning edges</p>
@@ -259,6 +383,12 @@ export default function ThreatDefenseGraphNavigator({
         <GraphControls
           mode={mode}
           onModeChange={setMode}
+          layout={layout}
+          onLayoutChange={setLayout}
+          routeEmphasis={routeEmphasis}
+          onRouteEmphasisChange={setRouteEmphasis}
+          showContext={showContext}
+          onToggleContext={() => setShowContext((current) => !current)}
           classificationFilters={classificationFilters}
           onToggleClassification={(classification) => {
             setClassificationFilters((current) => {
@@ -271,8 +401,8 @@ export default function ThreatDefenseGraphNavigator({
           onFitView={fitView}
           onResetSelection={resetSelection}
           onClearSelection={clearSelection}
-          hiddenNodeCount={graph.hiddenNodeCount}
-          hiddenLinkCount={graph.hiddenLinkCount}
+          hiddenNodeCount={offStageNodeCount}
+          hiddenLinkCount={offStageLinkCount}
         />
 
         <div className="relative flex flex-1 flex-col gap-3">
@@ -285,7 +415,7 @@ export default function ThreatDefenseGraphNavigator({
               ref={fgRef}
               width={canvasSize?.width}
               height={canvasSize?.height}
-              graphData={{ nodes: renderedNodes, links: renderedLinks }}
+              graphData={stagedData}
               backgroundColor="transparent"
               enableNodeDrag
               enableZoomInteraction
@@ -293,18 +423,54 @@ export default function ThreatDefenseGraphNavigator({
               cooldownTicks={120}
               d3AlphaDecay={0.045}
               d3VelocityDecay={0.35}
+              onRenderFramePre={(ctx, globalScale) => {
+                const plan = layoutPlanRef.current;
+                if (!plan || layout !== "trace" || plan.lanes.length === 0) return;
+                const labelSize = Math.min(22, Math.max(8, 11 / globalScale));
+                ctx.save();
+                plan.lanes.forEach((lane) => {
+                  const defensive = lane.layer.defensive;
+                  const contextLane = lane.layer.id === "context";
+                  // Defensive destination band: D3FEND lane is tinted so the
+                  // path toward defense is visually explicit, not decorative.
+                  if (defensive) {
+                    ctx.fillStyle = mitigationMode ? "rgba(21,128,61,0.16)" : "rgba(21,128,61,0.09)";
+                    ctx.fillRect(lane.x - 72, plan.top - 26, 144, plan.bottom - plan.top + 38);
+                  }
+                  ctx.strokeStyle = defensive ? "rgba(34,197,94,0.35)" : "rgba(100,116,139,0.22)";
+                  ctx.lineWidth = 1 / globalScale;
+                  ctx.setLineDash(defensive ? [] : [4, 5]);
+                  ctx.beginPath();
+                  ctx.moveTo(lane.x, plan.top - 10);
+                  ctx.lineTo(lane.x, plan.bottom + 6);
+                  ctx.stroke();
+                  ctx.setLineDash([]);
+                  ctx.font = `700 ${labelSize}px Inter, system-ui, sans-serif`;
+                  ctx.textAlign = "center";
+                  ctx.textBaseline = "bottom";
+                  ctx.fillStyle = defensive ? "rgba(134,239,172,0.95)" : contextLane ? "rgba(100,116,139,0.8)" : "rgba(148,163,184,0.9)";
+                  ctx.fillText(lane.layer.label, lane.x, plan.top - 14);
+                });
+                ctx.restore();
+              }}
               linkColor={(link) => {
                 const typed = link as RenderedLink;
                 if (typed.mitigation && mitigationMode) return COLORS.defense;
                 if (mitigationMode) return `${classificationColor(typed.classification)}33`;
                 if (typed.focused) return COLORS.ok;
                 if (typed.highlighted) return classificationColor(typed.classification);
-                return `${classificationColor(typed.classification)}88`;
+                return `${classificationColor(typed.classification)}${hasSelectionFocus ? "30" : "88"}`;
               }}
               linkWidth={(link) => {
                 const typed = link as RenderedLink;
                 if (typed.mitigation && mitigationMode) return typed.focused ? 4.2 : 3.4;
-                return typed.focused ? 2.6 : typed.highlighted ? 1.8 : 1.0;
+                const classificationWeight = classificationStrokeWeight(typed.classification);
+                return (typed.focused ? 2.6 : typed.highlighted ? 1.8 : 1.0) * classificationWeight;
+              }}
+              linkLineDash={(link) => {
+                const typed = link as RenderedLink;
+                if (typed.mitigation && mitigationMode) return null;
+                return classificationDash(typed.classification);
               }}
               linkVisibility={(link) => classificationFilters.has((link as GraphLinkData).classification)}
               linkDirectionalArrowLength={(link) => {
@@ -363,7 +529,7 @@ export default function ThreatDefenseGraphNavigator({
                   fitView();
                 }
               }}
-              nodeCanvasObject={(node, ctx, _globalScale) => {
+              nodeCanvasObject={(node, ctx, globalScale) => {
                 const typed = node as RenderedNode;
                 const x = typed.x ?? 0;
                 const y = typed.y ?? 0;
@@ -371,7 +537,9 @@ export default function ThreatDefenseGraphNavigator({
                 const fill = nodeColor(typed);
                 const highlight = typed.focused || typed.highlighted || selection?.kind === "node" && selection.id === typed.id;
                 const mitigation = typed.mitigation && mitigationMode;
-                const dimmed = mitigationMode && !typed.mitigation && !highlight;
+                const defensive = isDefensiveGraphNode(typed);
+                const onChain = routeChainSet.has(typed.id);
+                const dimmed = (mitigationMode && !typed.mitigation && !highlight) || (!mitigationMode && hasSelectionFocus && !highlight && !onChain);
 
                 ctx.save();
                 if (dimmed) ctx.globalAlpha = 0.35;
@@ -389,6 +557,27 @@ export default function ThreatDefenseGraphNavigator({
                 ctx.lineWidth = mitigation ? 2.5 : highlight ? 2 : 1;
                 ctx.strokeStyle = mitigation ? COLORS.defense : highlight ? "#f8fafc" : "#0f172a";
                 ctx.stroke();
+                // Defensive destination ring: D3FEND/control/mitigation nodes
+                // carry a second ring so defense reads even when dimmed.
+                if (defensive) {
+                  ctx.beginPath();
+                  ctx.arc(x, y, radius + 2.6, 0, Math.PI * 2);
+                  ctx.lineWidth = 1;
+                  ctx.strokeStyle = mitigation ? "#86efac" : `${COLORS.defense}AA`;
+                  ctx.stroke();
+                }
+                // Trace readability: label the spine and any focused nodes
+                // directly on the stage so the route reads without tooltips.
+                const zoomLabel = defensive ? false : globalScale > 1.6;
+                const showLabel = layout === "trace" ? onChain || (hasSelectionFocus && highlight) || (mitigationMode && mitigation) || zoomLabel : (highlight && globalScale > 1.2) || globalScale > 2.2;
+                if (showLabel) {
+                  const fontSize = Math.min(13, Math.max(6.5, 10 / globalScale));
+                  ctx.font = `${onChain ? "700" : "400"} ${fontSize}px ui-monospace, SFMono-Regular, monospace`;
+                  ctx.textAlign = "center";
+                  ctx.textBaseline = "top";
+                  ctx.fillStyle = dimmed ? "rgba(148,163,184,0.55)" : onChain ? "#e2e8f0" : "rgba(203,213,225,0.85)";
+                  ctx.fillText(typed.shortLabel, x, y + radius + 3.5);
+                }
                 ctx.restore();
               }}
               nodePointerAreaPaint={(node, color, ctx) => {
@@ -406,6 +595,14 @@ export default function ThreatDefenseGraphNavigator({
                 {mitigationMode ? "Mitigation path focus" : selection?.kind === "edge" ? "Edge focus" : selection?.kind === "node" ? "Node focus" : "Route focus"}
               </div>
               <div className="rounded-full border border-slate-800 bg-slate-950/90 px-3 py-1 text-[11px] text-slate-300 backdrop-blur">
+                {layout === "trace" ? "Trace layout · CVE → D3FEND" : "Force layout"}
+              </div>
+              {routeEmphasis === "primary" && (
+                <div className="rounded-full border border-sky-500/40 bg-sky-950/70 px-3 py-1 text-[11px] text-sky-200 backdrop-blur">
+                  Primary route emphasis
+                </div>
+              )}
+              <div className="rounded-full border border-slate-800 bg-slate-950/90 px-3 py-1 text-[11px] text-slate-300 backdrop-blur">
                 {stabilized ? "Simulation stable" : "Simulation stabilizing"}
               </div>
             </div>
@@ -418,6 +615,7 @@ export default function ThreatDefenseGraphNavigator({
                 nodes={renderedNodes}
                 links={renderedLinks}
                 resultEdges={result.edges}
+                routeChain={graph.routeChain}
                 mitigationNodeIds={highlights.mitigationNodes}
                 mitigationLinkIds={highlights.mitigationLinks}
                 onFocusNode={(nodeId) => onSelectNode(nodeId)}

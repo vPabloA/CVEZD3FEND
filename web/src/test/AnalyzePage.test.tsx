@@ -95,8 +95,8 @@ describe("AnalyzePage", () => {
     expect(screen.getByText(/^Live$/)).toBeInTheDocument();
 
     // Graph-centered single pane
-    expect(screen.getByText("Interactive Knowledge Graph")).toBeInTheDocument();
-    expect(screen.getByText("Ruta activa")).toBeInTheDocument();
+    expect(screen.getByText("Trace Explorer")).toBeInTheDocument();
+    expect(screen.getByText("CVE → D3FEND trace")).toBeInTheDocument();
     expect(screen.getByText("Route navigator")).toBeInTheDocument();
     expect(screen.getByText("Evidencia / Advanced details")).toBeInTheDocument();
 
@@ -166,7 +166,7 @@ describe("AnalyzePage", () => {
 
     renderAnalyze();
 
-    await screen.findByText("Interactive Knowledge Graph");
+    await screen.findByText("Trace Explorer");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
