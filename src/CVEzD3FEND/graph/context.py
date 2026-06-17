@@ -124,6 +124,11 @@ def make_edge(
     source_ref: str | None = None,
     source_url: str | None = None,
     evidence: list[str] | None = None,
+    resolution_state: str = "resolved",
+    lifecycle_state: str = "active",
+    scope_state: str = "included",
+    assertion_type: str = "canonical",
+    confidence_basis: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> Edge:
     ts = now_iso()
@@ -139,6 +144,11 @@ def make_edge(
         source_ref=source_ref,
         source_url=source_url,
         evidence=evidence or [],
+        resolution_state=resolution_state,
+        lifecycle_state=lifecycle_state,
+        scope_state=scope_state,
+        assertion_type=assertion_type,
+        confidence_basis=confidence_basis,
         created_at=ts,
         updated_at=ts,
         metadata=metadata or {},

@@ -3,6 +3,7 @@
 CVE2CAPEC_RAW = "https://raw.githubusercontent.com/Galeax/CVE2CAPEC/refs/heads/main"
 
 TECHNIQUES_ASSOCIATION_URL = f"{CVE2CAPEC_RAW}/resources/techniques_association.json"
+TECHNIQUES_DB_URL = f"{CVE2CAPEC_RAW}/resources/techniques_db.json"
 ATLAS_DB_URL = f"{CVE2CAPEC_RAW}/resources/atlas_db.json"
 DEFEND_DB_URL = f"{CVE2CAPEC_RAW}/resources/defend_db.jsonl"
 CAPEC_DB_URL = f"{CVE2CAPEC_RAW}/resources/capec_db.json"
@@ -14,6 +15,7 @@ CVE_YEAR_JSONL_URL = CVE2CAPEC_RAW + "/database/CVE-{year}.jsonl"
 CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
 SOURCE_ID_TECHNIQUES_ASSOCIATION = "cve2capec:techniques_association"
+SOURCE_ID_TECHNIQUES_DB = "cve2capec:techniques_db"
 SOURCE_ID_ATLAS_DB = "cve2capec:atlas_db"
 SOURCE_ID_DEFEND_DB = "cve2capec:defend_db"
 SOURCE_ID_CAPEC_DB = "cve2capec:capec_db"

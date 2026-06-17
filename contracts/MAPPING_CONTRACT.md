@@ -41,7 +41,20 @@ authoritative spec for `src/CVEzD3FEND/etl/*` and `src/CVEzD3FEND/graph/builder.
   `TAXONOMY NAME:ATTACK:ENTRY ID:([\w.]+)`.
 - `source_ref`: `cve2capec:capec_db`.
 - `confidence`: 0.85, `deterministic`: true.
-- If a CAPEC has no `ATTACK` taxonomy entry, no edge is created — this
+- **Resolution (Phase 2B).** Each parsed taxonomy entry is resolved rather than
+  blindly padded to `T<raw>`. The resolver runs against the ATT&CK universe
+  built from `techniques_db.json`, `defend_db.jsonl`, `atlas_db.json`, and
+  `techniques_association.json` (with implied parents folded in).
+  - Structural rule: ids that are not `T` + 4 digits, optionally `.3 digits`,
+    are `invalid` and never promoted.
+  - Exact match: a valid id present in the universe resolves as `resolved`.
+  - Parent match: a valid sub-technique absent from the registry but whose
+    parent family exists resolves as `resolved` with parent-based confidence.
+  - Registry unavailable: the resolver degrades gracefully for valid ids, but
+    still rejects malformed legacy numerics such as `34` and `18`.
+- Only resolved entries become canonical `attack` nodes + edges. Unresolved
+  entries are recorded on the CAPEC node as `metadata.unresolved_attack_refs`.
+- If a CAPEC has no resolved `ATTACK` taxonomy entry, no edge is created — this
   contributes to a `gap` node (`capec_without_attack`).
 
 ### `attack_maps_to_defend`
@@ -123,6 +136,8 @@ authoritative spec for `src/CVEzD3FEND/etl/*` and `src/CVEzD3FEND/graph/builder.
 ## What is explicitly NOT mapped without validation
 
 - AI is never the `source_ref` of a canonical edge.
+- `techniques_db.json` is a supporting ATT&CK registry used to build the
+  resolver universe for `capec_maps_to_attack`; it creates no edges of its own.
 - `techniques_association.json` does **not** create new edge types. It
   populates `aliases`/`external_refs` on `attack` nodes (cross-matrix
   technique ids for mobile/ICS), with `source_ref = cve2capec:techniques_association`.

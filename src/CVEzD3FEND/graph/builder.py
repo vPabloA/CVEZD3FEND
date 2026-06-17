@@ -16,6 +16,7 @@ from CVEzD3FEND.config import Settings
 from CVEzD3FEND.etl import cve_years, frameworks, kev
 from CVEzD3FEND.graph import catalogs
 from CVEzD3FEND.graph.context import GraphContext, make_edge, make_node
+from CVEzD3FEND.graph.resolution import AttackUniverse, resolve_attack_id
 from CVEzD3FEND.models.bundle import Source
 from CVEzD3FEND.models.graph import Edge, EdgeType, Node, NodeType
 from CVEzD3FEND.util import now_iso, safe_id_fragment
@@ -126,11 +127,56 @@ def mark_cross_validated(ctx: GraphContext, edge: Edge, cve_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def add_capec_db(ctx: GraphContext, data: dict, source: Source) -> None:
+def build_attack_universe(
+    techniques_db: dict | None,
+    defend_records: list[dict] | None,
+    atlas_data: dict | None,
+    techniques_association: dict | None,
+) -> AttackUniverse:
+    """Build the ATT&CK universe used to resolve CAPEC taxonomy ids."""
+
+    extra: list[str] = []
+    for rec in defend_records or []:
+        extra.extend(rec.keys())
+    extra.extend((atlas_data or {}).keys())
+    extra.extend((techniques_association or {}).keys())
+    return AttackUniverse.from_techniques_db(techniques_db or {}, extra_ids=extra)
+
+
+def add_capec_db(ctx: GraphContext, data: dict, source: Source, universe: AttackUniverse | None = None) -> None:
+    universe = universe or AttackUniverse.empty()
     for capec_num, info in data.items():
         capec_id = capec_id_from_raw(capec_num)
         name = (info.get("name") or "").strip()
         techniques_raw = info.get("techniques") or ""
+
+        resolved: list[tuple[str, object, str]] = []
+        unresolved: list[dict[str, str]] = []
+        for m in ATTACK_TAXONOMY_RE.finditer(techniques_raw):
+            resolution = resolve_attack_id(m.group(1), universe)
+            if resolution.is_mappable:
+                resolved.append((resolution.normalized_candidate, resolution, m.group(0)))
+            else:
+                unresolved.append(
+                    {
+                        "raw_id": resolution.raw_id,
+                        "normalized_candidate": resolution.normalized_candidate,
+                        "resolution_state": resolution.resolution_state.value,
+                        "resolution_method": resolution.resolution_method,
+                    }
+                )
+
+        metadata: dict = {}
+        if techniques_raw:
+            metadata["raw_techniques"] = techniques_raw
+        if unresolved:
+            metadata["unresolved_attack_refs"] = unresolved
+            ctx.warn(
+                f"{capec_id}: {len(unresolved)} ATT&CK taxonomy entr"
+                f"{'y' if len(unresolved) == 1 else 'ies'} unresolved "
+                f"({', '.join(u['raw_id'] for u in unresolved)})"
+            )
+
         ctx.add_node(
             make_node(
                 capec_id,
@@ -143,11 +189,10 @@ def add_capec_db(ctx: GraphContext, data: dict, source: Source) -> None:
                 external_refs=[catalogs.capec_external_url(capec_id)],
                 source_refs=[source.source_id],
                 confidence=1.0,
-                metadata={"raw_techniques": techniques_raw} if techniques_raw else {},
+                metadata=metadata,
             )
         )
-        for m in ATTACK_TAXONOMY_RE.finditer(techniques_raw):
-            attack_id = attack_id_from_raw(m.group(1))
+        for attack_id, resolution, evidence in resolved:
             ensure_attack_node(ctx, attack_id, [source.source_id])
             ctx.add_edge(
                 make_edge(
@@ -157,7 +202,11 @@ def add_capec_db(ctx: GraphContext, data: dict, source: Source) -> None:
                     confidence=0.85,
                     source_ref=source.source_id,
                     source_url=source.url,
-                    evidence=[m.group(0)],
+                    evidence=[evidence],
+                    resolution_state=resolution.resolution_state.value,
+                    lifecycle_state=resolution.lifecycle_state.value,
+                    confidence_basis=resolution.confidence_basis.value,
+                    metadata=resolution.as_metadata(),
                 )
             )
 
@@ -773,11 +822,33 @@ def build_graph(settings: Settings, client: httpx.Client | None = None) -> Build
     warnings: list[str] = []
 
     try:
+        techniques_db, techniques_db_source, w = frameworks.fetch_techniques_db(client, settings)
+        sources.append(techniques_db_source)
+        if w:
+            warnings.append(w)
+
+        ta_data, ta_source, w = frameworks.fetch_techniques_association(client, settings)
+        sources.append(ta_source)
+        if w:
+            warnings.append(w)
+
+        atlas_data, atlas_source, w = frameworks.fetch_atlas_db(client, settings)
+        sources.append(atlas_source)
+        if w:
+            warnings.append(w)
+
+        defend_records, defend_source, w = frameworks.fetch_defend_db(client, settings)
+        sources.append(defend_source)
+        if w:
+            warnings.append(w)
+
+        universe = build_attack_universe(techniques_db, defend_records, atlas_data, ta_data)
+
         capec_data, capec_source, w = frameworks.fetch_capec_db(client, settings)
         sources.append(capec_source)
         if w:
             warnings.append(w)
-        add_capec_db(ctx, capec_data, capec_source)
+        add_capec_db(ctx, capec_data, capec_source, universe)
 
         cwe_data, cwe_source, w = frameworks.fetch_cwe_db(client, settings)
         sources.append(cwe_source)
@@ -785,24 +856,10 @@ def build_graph(settings: Settings, client: httpx.Client | None = None) -> Build
             warnings.append(w)
         add_cwe_db(ctx, cwe_data, cwe_source)
 
-        ta_data, ta_source, w = frameworks.fetch_techniques_association(client, settings)
-        sources.append(ta_source)
-        if w:
-            warnings.append(w)
         if ta_data:
             add_techniques_association(ctx, ta_data, ta_source)
-
-        atlas_data, atlas_source, w = frameworks.fetch_atlas_db(client, settings)
-        sources.append(atlas_source)
-        if w:
-            warnings.append(w)
         if atlas_data:
             add_atlas_db(ctx, atlas_data, atlas_source)
-
-        defend_records, defend_source, w = frameworks.fetch_defend_db(client, settings)
-        sources.append(defend_source)
-        if w:
-            warnings.append(w)
         if defend_records:
             add_defend_db(ctx, defend_records, defend_source)
 

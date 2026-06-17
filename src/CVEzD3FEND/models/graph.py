@@ -92,6 +92,11 @@ class Edge(BaseModel):
     source_ref: str | None = None
     source_url: str | None = None
     evidence: list[str] = Field(default_factory=list)
+    resolution_state: str = "resolved"
+    lifecycle_state: str = "active"
+    scope_state: str = "included"
+    assertion_type: str = "canonical"
+    confidence_basis: str | None = None
     created_at: str
     updated_at: str
     metadata: dict[str, Any] = Field(default_factory=dict)
