@@ -1,0 +1,57 @@
+name: Debug FastTrack patch payload
+
+on:
+  pull_request:
+    branches:
+      - audit/fasttrack-baseline-base
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    if: github.head_ref == 'audit/fasttrack-baseline-run'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate payload against authorized branch
+        shell: bash
+        run: |
+          mkdir -p patch-debug
+          cp .github/fasttrack-code.patch.gz.b64 /tmp/code.b64
+          cp .github/fasttrack-tests.patch.gz.b64 /tmp/tests.b64
+          wc -c /tmp/code.b64 /tmp/tests.b64 | tee patch-debug/base64-sizes.txt
+          base64 --decode /tmp/code.b64 > /tmp/code.patch.gz
+          base64 --decode /tmp/tests.b64 > /tmp/tests.patch.gz
+          gzip --test /tmp/code.patch.gz 2>&1 | tee patch-debug/code-gzip-test.txt
+          gzip --test /tmp/tests.patch.gz 2>&1 | tee patch-debug/tests-gzip-test.txt
+          gzip --decompress --stdout /tmp/code.patch.gz > /tmp/code.patch
+          gzip --decompress --stdout /tmp/tests.patch.gz > /tmp/tests.patch
+          wc -c /tmp/code.patch /tmp/tests.patch | tee patch-debug/patch-sizes.txt
+          sha256sum /tmp/code.patch /tmp/tests.patch | tee patch-debug/patch-sha256.txt
+          git checkout -B feat/multi-cve-contextual-analysis origin/feat/multi-cve-contextual-analysis
+          git rev-parse HEAD | tee patch-debug/target-head.txt
+          set +e
+          git apply --check /tmp/code.patch > patch-debug/code-apply-check.txt 2>&1
+          code_status=$?
+          if [ "$code_status" -eq 0 ]; then
+            git apply /tmp/code.patch
+            git apply --check /tmp/tests.patch > patch-debug/tests-apply-check.txt 2>&1
+            tests_status=$?
+          else
+            tests_status=99
+          fi
+          echo "$code_status" | tee patch-debug/code-status.txt
+          echo "$tests_status" | tee patch-debug/tests-status.txt
+          cat patch-debug/code-apply-check.txt
+          cat patch-debug/tests-apply-check.txt 2>/dev/null || true
+          exit "$code_status"
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fasttrack-patch-debug
+          path: patch-debug/
+          retention-days: 2
