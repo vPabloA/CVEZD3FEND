@@ -1,0 +1,67 @@
+name: FastTrack baseline validation
+
+on:
+  push:
+    branches:
+      - audit/fasttrack-baseline-7f96d3c8
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact validation branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install backend dependencies
+        run: python -m pip install -e '.[dev,api]'
+
+      - name: Restore pre-checkpoint generated baseline artifacts
+        run: |
+          mkdir -p data/dist
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/knowledge-bundle.json > data/dist/knowledge-bundle.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/promoted-edges.json > data/dist/promoted-edges.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/quality-report.json > data/dist/quality-report.json
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Python compile baseline
+        run: python3 -m compileall src tests
+
+      - name: Python test baseline
+        run: pytest -q
+
+      - name: Frontend lint baseline
+        working-directory: web
+        run: npm run lint
+
+      - name: Frontend test baseline
+        working-directory: web
+        run: npm run test
+
+      - name: Frontend build baseline
+        working-directory: web
+        run: npm run build
+
+      - name: Diff whitespace baseline
+        run: git diff --check
