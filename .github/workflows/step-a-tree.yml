@@ -18,5 +18,14 @@ jobs:
       - name: Resolve audited tree
         run: |
           git fetch origin feat/multi-cve-contextual-analysis
-          echo "PRODUCT_HEAD=$(git rev-parse origin/feat/multi-cve-contextual-analysis)"
-          echo "PRODUCT_TREE=$(git rev-parse origin/feat/multi-cve-contextual-analysis^{tree})"
+          git rev-parse origin/feat/multi-cve-contextual-analysis > product-head.txt
+          git rev-parse origin/feat/multi-cve-contextual-analysis^{tree} > product-tree.txt
+      - name: Upload tree metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: step-a-tree-metadata
+          path: |
+            product-head.txt
+            product-tree.txt
+          if-no-files-found: error
+          retention-days: 7
