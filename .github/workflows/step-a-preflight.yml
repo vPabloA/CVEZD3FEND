@@ -1,9 +1,9 @@
 name: Step A preflight
 
 on:
-  push:
+  pull_request:
     branches:
-      - audit/step-a-preflight-20260618
+      - feat/multi-cve-contextual-analysis
 
 permissions:
   contents: read
@@ -12,17 +12,20 @@ jobs:
   validate-and-package:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout audit head
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: Confirm audited product head
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "1c7b77f715c7a75feaff2d5651a6a854ae1373cb"
-          git rev-parse HEAD^ | tee step-a-product-head.txt
+          git fetch origin feat/multi-cve-contextual-analysis
+          test "$(git rev-parse origin/feat/multi-cve-contextual-analysis)" = "1c7b77f715c7a75feaff2d5651a6a854ae1373cb"
+          test "$(git merge-base HEAD origin/feat/multi-cve-contextual-analysis)" = "1c7b77f715c7a75feaff2d5651a6a854ae1373cb"
+          git rev-parse origin/feat/multi-cve-contextual-analysis | tee step-a-product-head.txt
           git status --short | tee step-a-status-before.txt
           test ! -s step-a-status-before.txt
 
