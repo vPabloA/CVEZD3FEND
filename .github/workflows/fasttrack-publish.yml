@@ -1,0 +1,163 @@
+name: Publish FastTrack iteration 1
+
+on:
+  pull_request:
+    branches:
+      - audit/fasttrack-baseline-base
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.head_ref == 'audit/fasttrack-baseline-run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout audit payload
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve patches
+        run: |
+          cp .github/fasttrack-code.patch.gz.b64 /tmp/fasttrack-code.patch.gz.b64
+          cp .github/fasttrack-tests.patch.gz.b64 /tmp/fasttrack-tests.patch.gz.b64
+
+      - name: Checkout authorized FastTrack branch
+        run: |
+          git fetch origin feat/multi-cve-contextual-analysis
+          git checkout -B feat/multi-cve-contextual-analysis origin/feat/multi-cve-contextual-analysis
+          test "$(git rev-parse HEAD)" = "7f96d3c8f899a54705e040db69f276d55686eda0"
+          git config user.name "CVEzD3FEND FastTrack"
+          git config user.email "noreply@github.com"
+
+      - name: Apply capability commit
+        run: |
+          base64 --decode /tmp/fasttrack-code.patch.gz.b64 | gzip --decompress > /tmp/fasttrack-code.patch
+          git apply --index /tmp/fasttrack-code.patch
+          git diff --cached --check
+          git commit -m "feat(batch): add exact multi-cve Galeax analysis and contextual selection"
+          mkdir -p publisher-results
+          git rev-parse HEAD | tee publisher-results/capability-commit.txt
+
+      - name: Apply test commit
+        run: |
+          base64 --decode /tmp/fasttrack-tests.patch.gz.b64 | gzip --decompress > /tmp/fasttrack-tests.patch
+          git apply --index /tmp/fasttrack-tests.patch
+          git diff --cached --check
+          git commit -m "test(batch): validate deterministic multi-cve reasoning"
+          git rev-parse HEAD | tee publisher-results/test-commit.txt
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install backend dependencies
+        run: python -m pip install -e '.[dev,api]'
+
+      - name: Restore baseline bundle artifacts
+        run: |
+          mkdir -p data/dist
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/knowledge-bundle.json > data/dist/knowledge-bundle.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/promoted-edges.json > data/dist/promoted-edges.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/quality-report.json > data/dist/quality-report.json
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Python compile
+        run: set -o pipefail; python3 -m compileall src tests 2>&1 | tee publisher-results/compileall.txt
+
+      - name: Backend tests
+        run: set -o pipefail; pytest -q 2>&1 | tee publisher-results/pytest.txt
+
+      - name: Frontend lint
+        working-directory: web
+        run: set -o pipefail; npm run lint 2>&1 | tee ../publisher-results/frontend-lint.txt
+
+      - name: Frontend tests
+        working-directory: web
+        run: set -o pipefail; npm run test 2>&1 | tee ../publisher-results/frontend-test.txt
+
+      - name: Frontend build
+        working-directory: web
+        run: set -o pipefail; npm run build 2>&1 | tee ../publisher-results/frontend-build.txt
+
+      - name: Diff integrity
+        run: |
+          git diff --check 7f96d3c8f899a54705e040db69f276d55686eda0..HEAD | tee publisher-results/git-diff-check.txt
+          git diff --stat 7f96d3c8f899a54705e040db69f276d55686eda0..HEAD | tee publisher-results/diff-stat.txt
+          git diff --name-only 7f96d3c8f899a54705e040db69f276d55686eda0..HEAD | tee publisher-results/files-changed.txt
+
+      - name: Real multi-CVE demonstration
+        run: |
+          python - <<'PY'
+          import json
+          from fastapi.testclient import TestClient
+          from CVEzD3FEND.api.app import create_app
+          from CVEzD3FEND.config import Settings
+
+          settings = Settings()
+          client = TestClient(create_app(settings))
+          request = {
+              "cve_ids": "CVE-2025-0168, CVE-2026-20975, CVE-2023-99999999, invalid",
+              "context": {
+                  "technologies": ["Windows", "Active Directory"],
+                  "exposure": ["internet-facing", "production"],
+                  "priorities": ["initial access", "credential theft"],
+                  "audience": "SOC",
+              },
+              "top_k": 5,
+              "include_all_candidates": False,
+              "use_ai": False,
+          }
+          response = client.post("/api/reason/batch", json=request)
+          response.raise_for_status()
+          body = response.json()
+          if len(body["found_cves"]) < 2 or body["selected_route_count"] < 2:
+              raise SystemExit(f"real demo did not resolve two CVEs: {body}")
+          summary = {
+              "request": request,
+              "response": {
+                  "status": body["status"],
+                  "requested_cves": body["requested_cves"],
+                  "found_cves": body["found_cves"],
+                  "missing_cves": body["missing_cves"],
+                  "invalid_inputs": body["invalid_inputs"],
+                  "available_route_count": body["available_route_count"],
+                  "selected_route_count": body["selected_route_count"],
+                  "selected_routes": body["selected_routes"],
+                  "shared_attack_techniques": body["shared_attack_techniques"],
+                  "shared_defenses": body["shared_defenses"],
+                  "selection_summary": body["selection_summary"],
+                  "warnings": body["warnings"],
+                  "errors": body["errors"],
+              },
+          }
+          with open("publisher-results/real-multi-cve-demo.json", "w", encoding="utf-8") as handle:
+              json.dump(summary, handle, indent=2, ensure_ascii=False)
+          print(json.dumps(summary["response"], indent=2, ensure_ascii=False))
+          PY
+
+      - name: Push validated commits
+        run: git push origin HEAD:feat/multi-cve-contextual-analysis
+
+      - name: Upload publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fasttrack-iteration-1-publication
+          path: publisher-results/
+          if-no-files-found: warn
+          retention-days: 14
