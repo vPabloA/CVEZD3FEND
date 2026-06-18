@@ -1,0 +1,169 @@
+name: Step A validate tree
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: read
+
+jobs:
+  validate-tree:
+    runs-on: ubuntu-latest
+    env:
+      EXPECTED_PRODUCT_HEAD: 1c7b77f715c7a75feaff2d5651a6a854ae1373cb
+      EXPECTED_PATCH_SHA256: f58c6f6496a1fb007e1fb645b2543d2b0854f7ca18f706f176e236d8ce40a498
+      PRODUCT_BRANCH: feat/multi-cve-contextual-analysis
+      AUDIT_BRANCH: audit/step-a-preflight-20260618
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Materialize exact product head and apply audited patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$PRODUCT_BRANCH" "$AUDIT_BRANCH"
+          actual="$(git rev-parse "origin/$PRODUCT_BRANCH")"
+          test "$actual" = "$EXPECTED_PRODUCT_HEAD"
+          git checkout -B step-a-product "origin/$PRODUCT_BRANCH"
+          git show "origin/$AUDIT_BRANCH:audit/step-a.patch.gz.b64" \
+            | tr -d '\n' \
+            | base64 --decode \
+            | gzip --decompress \
+            > /tmp/step-a.patch
+          echo "$EXPECTED_PATCH_SHA256  /tmp/step-a.patch" | sha256sum --check
+          git apply --check /tmp/step-a.patch
+          git apply /tmp/step-a.patch
+          cat > /tmp/expected-files.txt <<'EOF'
+          src/CVEzD3FEND/api/app.py
+          src/CVEzD3FEND/reasoning/__init__.py
+          src/CVEzD3FEND/reasoning/batch.py
+          src/CVEzD3FEND/reasoning/batch_selection.py
+          src/CVEzD3FEND/reasoning/models.py
+          tests/integration/test_batch_reasoning_api.py
+          tests/unit/test_batch_reasoning.py
+          EOF
+          git diff --name-only | sort > step-a-changed-files.txt
+          diff -u /tmp/expected-files.txt step-a-changed-files.txt
+          test -z "$(git diff --name-only -- web)"
+          git diff --check
+          sha256sum /tmp/step-a.patch > step-a-patch.sha256
+
+      - name: Restore generated bundle artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/dist
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/knowledge-bundle.json > data/dist/knowledge-bundle.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/promoted-edges.json > data/dist/promoted-edges.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/quality-report.json > data/dist/quality-report.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,api]'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend
+        working-directory: web
+        run: npm ci
+
+      - name: Compile Python
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m compileall src tests 2>&1 | tee step-a-final-compileall.txt
+
+      - name: Run backend tests
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -q 2>&1 | tee step-a-final-pytest.txt
+
+      - name: Run frontend lint
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee ../step-a-final-frontend-lint.txt
+
+      - name: Run frontend tests
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee ../step-a-final-frontend-test.txt
+
+      - name: Run frontend build
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ../step-a-final-frontend-build.txt
+
+      - name: Check diff whitespace
+        shell: bash
+        run: |
+          set -o pipefail
+          git diff --check 2>&1 | tee step-a-final-git-diff-check.txt
+
+      - name: Demonstrate real Selected and All contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "origin/$AUDIT_BRANCH:audit/step_a_demo.py" > /tmp/step_a_demo.py
+          python /tmp/step_a_demo.py
+
+      - name: Materialize validated tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add \
+            src/CVEzD3FEND/api/app.py \
+            src/CVEzD3FEND/reasoning/__init__.py \
+            src/CVEzD3FEND/reasoning/batch.py \
+            src/CVEzD3FEND/reasoning/batch_selection.py \
+            src/CVEzD3FEND/reasoning/models.py \
+            tests/integration/test_batch_reasoning_api.py \
+            tests/unit/test_batch_reasoning.py
+          git diff --cached --check
+          git write-tree > step-a-validated-tree.txt
+          git diff --cached --stat > step-a-tree-stat.txt
+
+      - name: Upload final Step A evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: step-a-validated-tree
+          path: |
+            step-a-changed-files.txt
+            step-a-patch.sha256
+            step-a-final-compileall.txt
+            step-a-final-pytest.txt
+            step-a-final-frontend-lint.txt
+            step-a-final-frontend-test.txt
+            step-a-final-frontend-build.txt
+            step-a-final-git-diff-check.txt
+            step-a-example-default.json
+            step-a-example-all.json
+            step-a-example-summary.json
+            step-a-validated-tree.txt
+            step-a-tree-stat.txt
+          if-no-files-found: error
+          retention-days: 7
