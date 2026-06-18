@@ -1,0 +1,127 @@
+name: Step A preflight
+
+on:
+  push:
+    branches:
+      - audit/step-a-preflight-20260618
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Confirm audited product head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "1c7b77f715c7a75feaff2d5651a6a854ae1373cb"
+          git rev-parse HEAD^ | tee step-a-product-head.txt
+          git status --short | tee step-a-status-before.txt
+          test ! -s step-a-status-before.txt
+
+      - name: Restore generated bundle artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/dist
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/knowledge-bundle.json > data/dist/knowledge-bundle.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/promoted-edges.json > data/dist/promoted-edges.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/quality-report.json > data/dist/quality-report.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,api]'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend
+        working-directory: web
+        run: npm ci
+
+      - name: Compile Python
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m compileall src tests 2>&1 | tee step-a-compileall.txt
+
+      - name: Run backend tests
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -q 2>&1 | tee step-a-pytest.txt
+
+      - name: Run frontend lint
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee ../step-a-frontend-lint.txt
+
+      - name: Run frontend tests
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee ../step-a-frontend-test.txt
+
+      - name: Run frontend build
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ../step-a-frontend-build.txt
+
+      - name: Check diff whitespace
+        shell: bash
+        run: |
+          set -o pipefail
+          git diff --check 2>&1 | tee step-a-git-diff-check.txt
+
+      - name: Package audited workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar \
+            --exclude=.git \
+            --exclude=.venv \
+            --exclude=web/node_modules \
+            --exclude=.pytest_cache \
+            -czf step-a-workspace.tar.gz .
+          sha256sum step-a-workspace.tar.gz | tee step-a-workspace.sha256
+
+      - name: Upload preflight evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: step-a-preflight
+          path: |
+            step-a-product-head.txt
+            step-a-status-before.txt
+            step-a-compileall.txt
+            step-a-pytest.txt
+            step-a-frontend-lint.txt
+            step-a-frontend-test.txt
+            step-a-frontend-build.txt
+            step-a-git-diff-check.txt
+            step-a-workspace.tar.gz
+            step-a-workspace.sha256
+          if-no-files-found: error
+          retention-days: 7
