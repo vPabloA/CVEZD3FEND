@@ -1,0 +1,27 @@
+name: FastTrack tree metadata
+
+on:
+  pull_request:
+    branches:
+      - audit/fasttrack-baseline-base
+
+permissions:
+  contents: read
+
+jobs:
+  tree:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Capture product tree
+        run: |
+          mkdir -p tree-metadata
+          git rev-parse origin/ux/trace-graph-navigator-polish^{tree} | tee tree-metadata/base-tree.txt
+          git rev-parse origin/ux/trace-graph-navigator-polish | tee tree-metadata/base-commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fasttrack-tree-metadata
+          path: tree-metadata/
+          retention-days: 1
