@@ -1,9 +1,9 @@
 name: Step A preflight
 
 on:
-  pull_request:
+  push:
     branches:
-      - feat/multi-cve-contextual-analysis
+      - audit/step-a-preflight-20260618
 
 permissions:
   contents: read
@@ -15,7 +15,6 @@ jobs:
       - name: Checkout audit head
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: Confirm audited product head
