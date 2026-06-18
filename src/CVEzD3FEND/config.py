@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     api_port: int = 8000
 
     # --- Static serve ---
+    serve_host: str = "127.0.0.1"
     serve_port: int = 8787
 
     @property

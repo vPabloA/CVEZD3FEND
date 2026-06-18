@@ -31,7 +31,7 @@ All configuration is via environment variables (see `.env.example`), loaded by
 | `CVEZD3FEND_AI_PROVIDER` | `mock` | `mock\|anthropic\|openai\|gemini\|local-openai` |
 | `CVEZD3FEND_RAG_VECTOR_STORE` | `false` | enable optional vector store for RAG |
 | `CVEZD3FEND_API_HOST` / `_PORT` | `127.0.0.1` / `8000` | optional FastAPI sidecar |
-| `CVEZD3FEND_SERVE_PORT` | `8787` | static file server port (`CVEzD3FEND serve`) |
+| `CVEZD3FEND_SERVE_HOST` / `_PORT` | `127.0.0.1` / `8787` | static file server bind address (`CVEzD3FEND serve`) |
 
 ## CLI reference
 
@@ -39,6 +39,7 @@ All configuration is via environment variables (see `.env.example`), loaded by
 CVEzD3FEND build                       # full ETL + bundle + quality report
 CVEzD3FEND validate                    # structural + quality validation
 CVEzD3FEND serve                       # serve web/dist + bundle statically
+CVEzD3FEND serve --port 8788           # bind the static server to a different port
 CVEzD3FEND enrich CVE-2025-0168 --format json
 CVEzD3FEND reason CVE-2025-0168 --format tree
 CVEzD3FEND explain CVE-2025-0168

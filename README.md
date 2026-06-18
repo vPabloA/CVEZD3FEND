@@ -52,6 +52,7 @@ Then open http://127.0.0.1:8787.
 CVEzD3FEND build                                  # full ETL + bundle + quality report
 CVEzD3FEND validate                               # structural + quality validation
 CVEzD3FEND serve                                  # serve web/dist + bundle statically
+CVEzD3FEND serve --port 8788                      # choose a different static port
 CVEzD3FEND search T1059                           # search nodes by id/alias/text
 CVEzD3FEND route CVE-2026-0544                    # render the top route to the console
 CVEzD3FEND export route CVE-2026-0544 --format md
