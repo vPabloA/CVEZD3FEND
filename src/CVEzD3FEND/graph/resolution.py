@@ -5,30 +5,10 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from enum import Enum
+
+from CVEzD3FEND.models.graph import ConfidenceBasis, LifecycleState, ResolutionState
 
 TECHNIQUE_STRUCT_RE = re.compile(r"^T\d{4}(?:\.\d{3})?$")
-
-
-class ResolutionState(str, Enum):
-    RESOLVED = "resolved"
-    INVALID = "invalid"
-    AMBIGUOUS = "ambiguous"
-
-
-class LifecycleState(str, Enum):
-    ACTIVE = "active"
-    DEPRECATED = "deprecated"
-    REVOKED = "revoked"
-    UNKNOWN = "unknown"
-
-
-class ConfidenceBasis(str, Enum):
-    EXACT_ID = "exact_id"
-    NUMERIC_PADDING = "numeric_padding"
-    PARENT_IN_REGISTRY = "parent_in_registry"
-    UNVERIFIED = "unverified"
-    UNRESOLVED = "unresolved"
 
 
 def normalize_attack_id(raw: str) -> str:
@@ -202,7 +182,7 @@ def resolve_attack_id(raw: str, universe: AttackUniverse) -> MappingResolution:
     return MappingResolution(
         raw_id=raw_str,
         normalized_candidate=candidate,
-        resolution_state=ResolutionState.INVALID,
+        resolution_state=ResolutionState.UNRESOLVED,
         lifecycle_state=LifecycleState.UNKNOWN,
         confidence_basis=ConfidenceBasis.UNRESOLVED,
         resolution_method="absent_from_registry",

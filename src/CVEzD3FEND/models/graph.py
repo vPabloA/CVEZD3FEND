@@ -41,6 +41,52 @@ class NodeType(str, Enum):
     NOTE = "note"
 
 
+class ResolutionState(str, Enum):
+    """Whether a referenced id could be resolved. GRAPH_CONTRACT §"Edge-state dimensions"."""
+
+    RESOLVED = "resolved"
+    UNRESOLVED = "unresolved"
+    AMBIGUOUS = "ambiguous"
+    INVALID = "invalid"
+
+
+class LifecycleState(str, Enum):
+    """Lifecycle of the referenced id in its source framework."""
+
+    ACTIVE = "active"
+    DEPRECATED = "deprecated"
+    REVOKED = "revoked"
+    UNKNOWN = "unknown"
+
+
+class ScopeState(str, Enum):
+    """Whether the edge is in scope for the active trace profile."""
+
+    INCLUDED = "included"
+    EXCLUDED = "excluded"
+    CONTEXTUAL = "contextual"
+
+
+class AssertionType(str, Enum):
+    """Provenance class of the assertion."""
+
+    CANONICAL = "canonical"
+    SOURCE_DERIVED = "source_derived"
+    CURATED = "curated"
+    INFERRED = "inferred"
+
+
+class ConfidenceBasis(str, Enum):
+    """Why the confidence value holds."""
+
+    EXACT_ID = "exact_id"
+    NUMERIC_PADDING = "numeric_padding"
+    PARENT_IN_REGISTRY = "parent_in_registry"
+    OFFICIAL_MAPPING = "official_mapping"
+    UNVERIFIED = "unverified"
+    UNRESOLVED = "unresolved"
+
+
 class EdgeType(str, Enum):
     CVE_HAS_CWE = "cve_has_cwe"
     CWE_MAPS_TO_CAPEC = "cwe_maps_to_capec"
@@ -92,11 +138,11 @@ class Edge(BaseModel):
     source_ref: str | None = None
     source_url: str | None = None
     evidence: list[str] = Field(default_factory=list)
-    resolution_state: str = "resolved"
-    lifecycle_state: str = "active"
-    scope_state: str = "included"
-    assertion_type: str = "canonical"
-    confidence_basis: str | None = None
+    resolution_state: ResolutionState = ResolutionState.RESOLVED
+    lifecycle_state: LifecycleState = LifecycleState.ACTIVE
+    scope_state: ScopeState = ScopeState.INCLUDED
+    assertion_type: AssertionType = AssertionType.CANONICAL
+    confidence_basis: ConfidenceBasis | None = None
     created_at: str
     updated_at: str
     metadata: dict[str, Any] = Field(default_factory=dict)

@@ -61,6 +61,15 @@ def test_parent_family_match_keeps_real_subtechnique():
     assert result.resolution_method == "subtechnique_parent_match"
 
 
+def test_well_formed_id_absent_from_registry_is_unresolved_not_invalid():
+    universe = AttackUniverse.from_techniques_db({"T1059": []})
+    result = resolve_attack_id("T9999", universe)
+    assert result.resolution_state is ResolutionState.UNRESOLVED
+    assert not result.is_mappable
+    assert result.confidence_basis is ConfidenceBasis.UNRESOLVED
+    assert result.resolution_method == "absent_from_registry"
+
+
 def test_unavailable_registry_degrades_gracefully():
     universe = AttackUniverse.empty()
     result = resolve_attack_id("1574.010", universe)

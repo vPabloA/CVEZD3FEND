@@ -5,7 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from CVEzD3FEND.models.graph import Edge, EdgeType, Node, NodeType
+from CVEzD3FEND.models.graph import (
+    AssertionType,
+    ConfidenceBasis,
+    Edge,
+    EdgeType,
+    LifecycleState,
+    Node,
+    NodeType,
+    ResolutionState,
+    ScopeState,
+)
 from CVEzD3FEND.util import edge_id, now_iso
 
 
@@ -124,11 +134,11 @@ def make_edge(
     source_ref: str | None = None,
     source_url: str | None = None,
     evidence: list[str] | None = None,
-    resolution_state: str = "resolved",
-    lifecycle_state: str = "active",
-    scope_state: str = "included",
-    assertion_type: str = "canonical",
-    confidence_basis: str | None = None,
+    resolution_state: ResolutionState | str = ResolutionState.RESOLVED,
+    lifecycle_state: LifecycleState | str = LifecycleState.ACTIVE,
+    scope_state: ScopeState | str = ScopeState.INCLUDED,
+    assertion_type: AssertionType | str = AssertionType.CANONICAL,
+    confidence_basis: ConfidenceBasis | str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> Edge:
     ts = now_iso()
