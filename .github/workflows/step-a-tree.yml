@@ -14,12 +14,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-      - name: Resolve audited tree
+      - name: Resolve audited trees
         run: |
           git fetch origin feat/multi-cve-contextual-analysis
           git rev-parse origin/feat/multi-cve-contextual-analysis > product-head.txt
           git rev-parse origin/feat/multi-cve-contextual-analysis^{tree} > product-tree.txt
+          git rev-parse HEAD > audit-head.txt
+          git rev-parse HEAD^{tree} > audit-tree.txt
       - name: Upload tree metadata
         uses: actions/upload-artifact@v4
         with:
@@ -27,5 +30,7 @@ jobs:
           path: |
             product-head.txt
             product-tree.txt
+            audit-head.txt
+            audit-tree.txt
           if-no-files-found: error
           retention-days: 7
