@@ -1,12 +1,9 @@
 name: FastTrack baseline validation
 
 on:
-  push:
-    branches:
-      - audit/fasttrack-baseline-7f96d3c8
   pull_request:
     branches:
-      - ux/trace-graph-navigator-polish
+      - audit/fasttrack-baseline-base
 
 permissions:
   contents: read
@@ -16,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout exact validation branch
+      - name: Checkout validation merge
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
