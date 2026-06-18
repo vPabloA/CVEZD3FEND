@@ -203,7 +203,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = BatchReasoningEngine(settings, bundle)
         try:
             result = engine.analyze(request)
-            return result.model_dump(mode="json")
+            # Omit optional candidate_graph when the caller did not explicitly
+            # request the complete candidate universe.
+            return result.model_dump(mode="json", exclude_none=True)
         except BatchLimitError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:

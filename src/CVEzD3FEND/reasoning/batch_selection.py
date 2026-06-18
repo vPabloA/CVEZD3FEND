@@ -149,12 +149,22 @@ def _marginal_key(
     return (utility, preference, route.cve_id, route.route_id)
 
 
+def _selected_with_basis(route: RankedRoute, basis: str) -> RankedRoute:
+    return route.model_copy(update={"selection_basis": basis, "selection_rank": None})
+
+
 def select_routes(
     routes: list[RankedRoute],
     top_k: int,
     requested_order: list[str],
     preference_order: list[str] | None = None,
 ) -> tuple[list[RankedRoute], BatchSelectionSummary]:
+    """Choose the Top-K membership while preserving the explicit coverage policy.
+
+    ``selection_basis`` records why each route entered the selected set. Final
+    presentation order is assigned separately by :func:`rank_selected_routes`.
+    """
+
     if not routes or top_k <= 0:
         return [], BatchSelectionSummary()
 
@@ -176,15 +186,21 @@ def select_routes(
                 route.route_id,
             )
         )
-        selected = best_per_cve[:top_k]
+        basis = "ai_rerank" if preference_rank else "top_k_constraint"
+        selected = [_selected_with_basis(route, basis) for route in best_per_cve[:top_k]]
         policy = "contextual_priority_due_to_top_k_constraint"
     else:
-        selected = [_best_for_cve(routes, cve, preference_rank) for cve in eligible]
+        floor_basis = "ai_rerank" if preference_rank else "coverage_floor"
+        selected = [
+            _selected_with_basis(_best_for_cve(routes, cve, preference_rank), floor_basis)
+            for cve in eligible
+        ]
         policy = "coverage_floor_then_contextual_utility"
         remaining = [route for route in routes if route.route_id not in {item.route_id for item in selected}]
         while len(selected) < top_k and remaining:
             chosen = max(remaining, key=lambda route: _marginal_key(route, selected, preference_rank))
-            selected.append(chosen)
+            extra_basis = "ai_rerank" if preference_rank else "contextual_utility"
+            selected.append(_selected_with_basis(chosen, extra_basis))
             remaining = [route for route in remaining if route.route_id != chosen.route_id]
 
     represented = [cve for cve in requested_order if any(route.cve_id == cve for route in selected)]
@@ -195,6 +211,51 @@ def select_routes(
         unrepresented_cves=unrepresented,
         representation_policy=policy,
     )
+
+
+def rank_selected_routes(
+    routes: list[RankedRoute],
+    *,
+    selection_mode: str,
+    preference_order: list[str] | None = None,
+) -> list[RankedRoute]:
+    """Assign stable, contiguous, one-based presentation ranks.
+
+    Membership, score, and presentation rank are deliberately separate. In AI
+    mode only validated shortlist IDs can appear in ``preference_order``.
+    """
+
+    preference_rank = {
+        route_id: index for index, route_id in enumerate(preference_order or [])
+    }
+    if selection_mode == "ai_reranked":
+        ordered = sorted(
+            routes,
+            key=lambda route: (
+                preference_rank.get(route.route_id, 10**9),
+                -route.score,
+                -route.shared_cve_count,
+                -route.defensive_reuse_count,
+                route.cve_id,
+                route.route_id,
+            ),
+        )
+    else:
+        ordered = sorted(
+            routes,
+            key=lambda route: (
+                -route.score,
+                -route.shared_cve_count,
+                -route.defensive_reuse_count,
+                -route.completeness,
+                route.cve_id,
+                route.route_id,
+            ),
+        )
+    return [
+        route.model_copy(update={"selection_rank": index})
+        for index, route in enumerate(ordered, start=1)
+    ]
 
 
 def _parse_ai_route_order(text: str, allowed_ids: set[str]) -> list[str]:

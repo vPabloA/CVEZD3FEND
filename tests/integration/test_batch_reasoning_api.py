@@ -53,8 +53,28 @@ def test_batch_reasoning_endpoint_multi_year_partial_success(tmp_path, sample_bu
         "CVE-2019-0001",
         "CVE-2026-0002",
     }
-    assert "T1059" in body["shared_attack_techniques"]
-    assert "D3-FA" in body["shared_defenses"]
+    assert "T1059" in body["shared_attack_techniques_selected"]
+    assert "T1059" in body["shared_attack_techniques_all_candidates"]
+    assert "D3-FA" in body["shared_defenses_selected"]
+    assert "D3-FA" in body["shared_defenses_all_candidates"]
+    assert body["shared_attack_techniques"] == body["shared_attack_techniques_selected"]
+    assert body["shared_defenses"] == body["shared_defenses_selected"]
+    assert body["candidate_graph"]["nodes"]
+    assert body["candidate_graph"]["edges"]
+    assert body["selected_graph"]["nodes"]
+    assert body["selected_graph"]["edges"]
+    candidate_nodes = {node["id"] for node in body["candidate_graph"]["nodes"]}
+    candidate_edges = {edge["id"] for edge in body["candidate_graph"]["edges"]}
+    selected_nodes = {node["id"] for node in body["selected_graph"]["nodes"]}
+    selected_edges = {edge["id"] for edge in body["selected_graph"]["edges"]}
+    assert selected_nodes <= candidate_nodes
+    assert selected_edges <= candidate_edges
+    assert body["nodes"] == body["selected_graph"]["nodes"]
+    assert body["edges"] == body["selected_graph"]["edges"]
+    assert [route["selection_rank"] for route in body["selected_routes"]] == [1, 2]
+    for route in body["candidate_routes"]:
+        assert set(route["node_ids"]) <= candidate_nodes
+        assert set(route["edge_ids"]) <= candidate_edges
 
 
 def test_single_cve_is_supported_as_batch_of_one(tmp_path, sample_bundle):
@@ -73,3 +93,9 @@ def test_single_cve_is_supported_as_batch_of_one(tmp_path, sample_bundle):
     assert body["found_cves"] == ["CVE-2099-0001"]
     assert body["selection_summary"]["eligible_cves"] == 1
     assert body["selected_routes"]
+    assert body["candidate_routes"] == []
+    assert "candidate_graph" not in body
+    assert body["selected_graph"]["nodes"]
+    assert body["selected_graph"]["edges"]
+    assert body["nodes"] == body["selected_graph"]["nodes"]
+    assert body["edges"] == body["selected_graph"]["edges"]

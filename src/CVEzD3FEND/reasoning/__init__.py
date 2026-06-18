@@ -6,6 +6,7 @@ from CVEzD3FEND.reasoning.models import (
     BatchAnalysisRequest,
     BatchReasoningResult,
     EnrichmentResult,
+    GraphSlice,
     ReasoningResult,
 )
 
@@ -14,6 +15,7 @@ __all__ = [
     "BatchReasoningEngine",
     "BatchReasoningResult",
     "EnrichmentResult",
+    "GraphSlice",
     "ReasoningEngine",
     "ReasoningResult",
 ]
