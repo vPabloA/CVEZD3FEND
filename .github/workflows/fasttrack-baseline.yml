@@ -36,32 +36,43 @@ jobs:
 
       - name: Restore pre-checkpoint generated baseline artifacts
         run: |
-          mkdir -p data/dist
+          mkdir -p data/dist baseline-results
           git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/knowledge-bundle.json > data/dist/knowledge-bundle.json
           git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/promoted-edges.json > data/dist/promoted-edges.json
           git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/quality-report.json > data/dist/quality-report.json
+          git rev-parse HEAD | tee baseline-results/checked-out-head.txt
+          git rev-parse origin/ux/trace-graph-navigator-polish | tee baseline-results/product-head.txt
 
       - name: Install frontend dependencies
         working-directory: web
         run: npm ci
 
       - name: Python compile baseline
-        run: python3 -m compileall src tests
+        run: set -o pipefail; python3 -m compileall src tests 2>&1 | tee baseline-results/compileall.txt
 
       - name: Python test baseline
-        run: pytest -q
+        run: set -o pipefail; pytest -q 2>&1 | tee baseline-results/pytest.txt
 
       - name: Frontend lint baseline
         working-directory: web
-        run: npm run lint
+        run: set -o pipefail; npm run lint 2>&1 | tee ../baseline-results/frontend-lint.txt
 
       - name: Frontend test baseline
         working-directory: web
-        run: npm run test
+        run: set -o pipefail; npm run test 2>&1 | tee ../baseline-results/frontend-test.txt
 
       - name: Frontend build baseline
         working-directory: web
-        run: npm run build
+        run: set -o pipefail; npm run build 2>&1 | tee ../baseline-results/frontend-build.txt
 
       - name: Diff whitespace baseline
-        run: git diff --check
+        run: set -o pipefail; git diff --check 2>&1 | tee baseline-results/git-diff-check.txt
+
+      - name: Upload exact baseline outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fasttrack-baseline-results
+          path: baseline-results/
+          if-no-files-found: error
+          retention-days: 7
