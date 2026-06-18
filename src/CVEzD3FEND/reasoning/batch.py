@@ -17,11 +17,13 @@ from CVEzD3FEND.intelligence.providers.base import Provider, ProviderError
 from CVEzD3FEND.models.bundle import Bundle
 from CVEzD3FEND.reasoning.batch_candidates import (
     BatchLimitError,
+    CandidatePool,
     build_candidate_pool,
     normalize_cve_inputs,
 )
 from CVEzD3FEND.reasoning.batch_selection import (
     _parse_ai_route_order,
+    rank_selected_routes,
     score_routes,
     select_routes,
 )
@@ -31,6 +33,7 @@ from CVEzD3FEND.reasoning.models import (
     BatchNarrative,
     BatchReasoningResult,
     BatchSelectionSummary,
+    GraphSlice,
     RankedRoute,
 )
 
@@ -53,6 +56,7 @@ def _render_batch_narrative(
     shared_attack: list[str],
     shared_defend: list[str],
     summary: BatchSelectionSummary,
+    audience: str,
 ) -> BatchNarrative:
     top_cves = list(dict.fromkeys(route.cve_id for route in selected))
     executive = (
@@ -62,12 +66,15 @@ def _render_batch_narrative(
         f"{len(summary.unrepresented_cves)} quedaron fuera del Top-K por la política declarada."
     )
     operational = (
-        f"Priorizar validación sobre ATT&CK compartido: {', '.join(shared_attack[:8]) or 'sin convergencias'}; "
-        f"capacidades D3FEND reutilizables: {', '.join(shared_defend[:8]) or 'sin reutilización transversal'}."
+        f"Para {audience}, priorizar validación sobre ATT&CK compartido seleccionado: "
+        f"{', '.join(shared_attack[:8]) or 'sin convergencias seleccionadas'}; "
+        f"capacidades D3FEND seleccionadas y reutilizables: "
+        f"{', '.join(shared_defend[:8]) or 'sin reutilización transversal seleccionada'}."
     )
     technical = (
         f"Universo={available_count}; seleccionadas={len(selected)}; "
         f"política={summary.representation_policy}; modo={summary.selection_mode}. "
+        f"Audience={audience} (presentation only); "
         f"Missing={', '.join(missing) or 'none'}; invalid={', '.join(invalid) or 'none'}. "
         "Cada salto de cada ruta está respaldado por una arista CVE2CAPEC/CWE/CAPEC/ATT&CK/D3FEND; "
         "las assertions agregadas del registro CVE solo se usan como corroboración."
@@ -76,6 +83,46 @@ def _render_batch_narrative(
         executive_summary_es=executive,
         operational_summary_es=operational,
         technical_summary_es=technical,
+    )
+
+
+def _shared_convergences(routes: list[RankedRoute]) -> tuple[list[str], list[str]]:
+    attack_cves: dict[str, set[str]] = defaultdict(set)
+    defend_cves: dict[str, set[str]] = defaultdict(set)
+    for route in routes:
+        for attack_id in route.attack_ids:
+            attack_cves[attack_id].add(route.cve_id)
+        for defend_id in route.defend_ids:
+            defend_cves[defend_id].add(route.cve_id)
+    shared_attack = sorted(
+        (attack_id for attack_id, cves in attack_cves.items() if len(cves) > 1),
+        key=lambda item: (-len(attack_cves[item]), item),
+    )
+    shared_defend = sorted(
+        (defend_id for defend_id, cves in defend_cves.items() if len(cves) > 1),
+        key=lambda item: (-len(defend_cves[item]), item),
+    )
+    return shared_attack, shared_defend
+
+
+def _graph_slice(
+    routes: list[RankedRoute],
+    pool: CandidatePool,
+) -> GraphSlice:
+    node_ids = {node_id for route in routes for node_id in route.node_ids}
+    edge_ids = {edge_id for route in routes for edge_id in route.edge_ids}
+    missing_nodes = sorted(node_id for node_id in node_ids if node_id not in pool.nodes)
+    missing_edges = sorted(edge_id for edge_id in edge_ids if edge_id not in pool.edges)
+    if missing_nodes or missing_edges:
+        details: list[str] = []
+        if missing_nodes:
+            details.append("nodes=" + ",".join(missing_nodes))
+        if missing_edges:
+            details.append("edges=" + ",".join(missing_edges))
+        raise ValueError("candidate pool graph contract is incomplete: " + "; ".join(details))
+    return GraphSlice(
+        nodes=[pool.nodes[node_id] for node_id in sorted(node_ids)],
+        edges=[pool.edges[edge_id] for edge_id in sorted(edge_ids)],
     )
 
 
@@ -113,7 +160,17 @@ class BatchReasoningEngine:
                 requested_cves=[],
                 invalid_inputs=invalid,
                 selection_summary=BatchSelectionSummary(),
-                narrative=_render_batch_narrative([], [], 0, [], invalid, [], [], BatchSelectionSummary()),
+                narrative=_render_batch_narrative(
+                    [],
+                    [],
+                    0,
+                    [],
+                    invalid,
+                    [],
+                    [],
+                    BatchSelectionSummary(),
+                    request.context.audience,
+                ),
                 warnings=["No valid CVE identifiers were provided."],
             )
 
@@ -142,6 +199,7 @@ class BatchReasoningEngine:
         selection_mode = "deterministic"
         fallback_used = False
         warnings = list(exact.warnings)
+        validated_ai_order: list[str] | None = None
 
         if request.use_ai:
             if not self.settings.ai_enabled:
@@ -186,6 +244,7 @@ class BatchReasoningEngine:
                         for route in deterministic_shortlist
                         if route.route_id not in ai_order
                     )
+                    validated_ai_order = ai_order
                     selected, selection_summary = select_routes(
                         deterministic_shortlist,
                         min(request.top_k, len(deterministic_shortlist)),
@@ -201,26 +260,23 @@ class BatchReasoningEngine:
             update={"selection_mode": selection_mode, "fallback_used": fallback_used}
         )
 
-        attack_cves: dict[str, set[str]] = defaultdict(set)
-        defend_cves: dict[str, set[str]] = defaultdict(set)
-        for route in scored:
-            for attack_id in route.attack_ids:
-                attack_cves[attack_id].add(route.cve_id)
-            for defend_id in route.defend_ids:
-                defend_cves[defend_id].add(route.cve_id)
-        shared_attack = sorted(
-            (attack_id for attack_id, cves in attack_cves.items() if len(cves) > 1),
-            key=lambda item: (-len(attack_cves[item]), item),
+        selected = rank_selected_routes(
+            selected,
+            selection_mode=selection_mode,
+            preference_order=validated_ai_order,
         )
-        shared_defend = sorted(
-            (defend_id for defend_id, cves in defend_cves.items() if len(cves) > 1),
-            key=lambda item: (-len(defend_cves[item]), item),
-        )
+        shared_attack_selected, shared_defend_selected = _shared_convergences(selected)
+        shared_attack_all, shared_defend_all = _shared_convergences(scored)
 
-        selected_node_ids = {node_id for route in selected for node_id in route.node_ids}
-        selected_edge_ids = {edge_id for route in selected for edge_id in route.edge_ids}
-        nodes = [pool.nodes[node_id] for node_id in sorted(selected_node_ids) if node_id in pool.nodes]
-        edges = [pool.edges[edge_id] for edge_id in sorted(selected_edge_ids) if edge_id in pool.edges]
+        selected_graph = _graph_slice(selected, pool)
+        candidate_graph = _graph_slice(scored, pool) if request.include_all_candidates else None
+        if candidate_graph is not None:
+            selected_node_ids = {node.id for node in selected_graph.nodes}
+            selected_edge_ids = {edge.id for edge in selected_graph.edges}
+            candidate_node_ids = {node.id for node in candidate_graph.nodes}
+            candidate_edge_ids = {edge.id for edge in candidate_graph.edges}
+            if not selected_node_ids <= candidate_node_ids or not selected_edge_ids <= candidate_edge_ids:
+                raise ValueError("selected_graph must be a subset of candidate_graph")
 
         errors = list(exact.errors)
         status = "ok"
@@ -235,15 +291,20 @@ class BatchReasoningEngine:
         provenance["selected_route_sources"] = {
             route.route_id: route.provenance for route in selected
         }
+        if request.include_all_candidates:
+            provenance["candidate_route_sources"] = {
+                route.route_id: route.provenance for route in scored
+            }
         narrative = _render_batch_narrative(
             found,
             selected,
             len(scored),
             exact.missing_cves,
             invalid,
-            shared_attack,
-            shared_defend,
+            shared_attack_selected,
+            shared_defend_selected,
             selection_summary,
+            request.context.audience,
         )
         return BatchReasoningResult(
             status=status,
@@ -255,10 +316,12 @@ class BatchReasoningEngine:
             selected_route_count=len(selected),
             candidate_routes=scored if request.include_all_candidates else [],
             selected_routes=selected,
-            nodes=nodes,
-            edges=edges,
-            shared_attack_techniques=shared_attack,
-            shared_defenses=shared_defend,
+            selected_graph=selected_graph,
+            candidate_graph=candidate_graph,
+            shared_attack_techniques_selected=shared_attack_selected,
+            shared_attack_techniques_all_candidates=shared_attack_all,
+            shared_defenses_selected=shared_defend_selected,
+            shared_defenses_all_candidates=shared_defend_all,
             selection_summary=selection_summary,
             narrative=narrative,
             provenance=provenance,
