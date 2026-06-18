@@ -1,0 +1,22 @@
+name: Step A tree metadata
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: read
+
+jobs:
+  tree:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve audited tree
+        run: |
+          git fetch origin feat/multi-cve-contextual-analysis
+          echo "PRODUCT_HEAD=$(git rev-parse origin/feat/multi-cve-contextual-analysis)"
+          echo "PRODUCT_TREE=$(git rev-parse origin/feat/multi-cve-contextual-analysis^{tree})"
