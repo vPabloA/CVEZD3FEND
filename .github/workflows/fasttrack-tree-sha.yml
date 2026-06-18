@@ -15,11 +15,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Capture product tree
+      - name: Capture pull-request head tree
         run: |
           mkdir -p tree-metadata
-          git rev-parse origin/ux/trace-graph-navigator-polish^{tree} | tee tree-metadata/base-tree.txt
-          git rev-parse origin/ux/trace-graph-navigator-polish | tee tree-metadata/base-commit.txt
+          git rev-parse "${{ github.event.pull_request.head.sha }}^{tree}" | tee tree-metadata/head-tree.txt
+          printf '%s\n' "${{ github.event.pull_request.head.sha }}" | tee tree-metadata/head-commit.txt
       - uses: actions/upload-artifact@v4
         with:
           name: fasttrack-tree-metadata
