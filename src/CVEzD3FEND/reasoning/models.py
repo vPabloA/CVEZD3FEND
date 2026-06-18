@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from CVEzD3FEND.models.graph import Edge, Node
 
 ReasoningEdgeClassification = Literal[
     "official_explicit",
@@ -141,5 +144,101 @@ class ReasoningResult(BaseModel):
     threat_hunting: ThreatHunting
     ctem: Ctem
     exports: Exports
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+class AnalysisContext(BaseModel):
+    technologies: list[str] = Field(default_factory=list)
+    exposure: list[str] = Field(default_factory=list)
+    priorities: list[str] = Field(default_factory=list)
+    audience: str = "SOC"
+
+    @field_validator("technologies", "exposure", "priorities", mode="before")
+    @classmethod
+    def _normalize_context_list(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [part.strip() for part in value.split(",")]
+        if not isinstance(value, list):
+            raise ValueError("context values must be a string or list of strings")
+        return list(dict.fromkeys(str(item).strip() for item in value if str(item).strip()))
+
+
+class BatchAnalysisRequest(BaseModel):
+    cve_ids: list[str]
+    context: AnalysisContext = Field(default_factory=AnalysisContext)
+    top_k: int = Field(default=10, ge=1, le=100)
+    include_all_candidates: bool = True
+    use_ai: bool = False
+
+    @field_validator("cve_ids", mode="before")
+    @classmethod
+    def _split_cve_inputs(cls, value: Any) -> list[str]:
+        if isinstance(value, str):
+            values = [value]
+        elif isinstance(value, (list, tuple, set)):
+            values = [str(item) for item in value]
+        else:
+            raise ValueError("cve_ids must be a string or list of strings")
+
+        tokens: list[str] = []
+        for item in values:
+            tokens.extend(part for part in re.split(r"[\s,]+", item.strip()) if part)
+        return tokens
+
+
+class RankedRoute(BaseModel):
+    route_id: str
+    cve_id: str
+    cve_ids: list[str] = Field(default_factory=list)
+    node_ids: list[str] = Field(default_factory=list)
+    edge_ids: list[str] = Field(default_factory=list)
+    attack_ids: list[str] = Field(default_factory=list)
+    defend_ids: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+    completeness: float = 0.0
+    score: float = 0.0
+    selection_reasons: list[str] = Field(default_factory=list)
+    provenance: list[str] = Field(default_factory=list)
+    shared_cve_count: int = 1
+    defensive_reuse_count: int = 1
+    corroborated_nodes: list[str] = Field(default_factory=list)
+    gaps: list[str] = Field(default_factory=list)
+
+
+class BatchSelectionSummary(BaseModel):
+    eligible_cves: int = 0
+    represented_cves: list[str] = Field(default_factory=list)
+    unrepresented_cves: list[str] = Field(default_factory=list)
+    representation_policy: str = "no_eligible_routes"
+    selection_mode: Literal["deterministic", "ai_reranked"] = "deterministic"
+    fallback_used: bool = False
+
+
+class BatchNarrative(BaseModel):
+    executive_summary_es: str = ""
+    operational_summary_es: str = ""
+    technical_summary_es: str = ""
+
+
+class BatchReasoningResult(BaseModel):
+    status: str = "ok"
+    requested_cves: list[str] = Field(default_factory=list)
+    found_cves: list[str] = Field(default_factory=list)
+    missing_cves: list[str] = Field(default_factory=list)
+    invalid_inputs: list[str] = Field(default_factory=list)
+    available_route_count: int = 0
+    selected_route_count: int = 0
+    candidate_routes: list[RankedRoute] = Field(default_factory=list)
+    selected_routes: list[RankedRoute] = Field(default_factory=list)
+    nodes: list[Node] = Field(default_factory=list)
+    edges: list[Edge] = Field(default_factory=list)
+    shared_attack_techniques: list[str] = Field(default_factory=list)
+    shared_defenses: list[str] = Field(default_factory=list)
+    selection_summary: BatchSelectionSummary = Field(default_factory=BatchSelectionSummary)
+    narrative: BatchNarrative = Field(default_factory=BatchNarrative)
+    provenance: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
