@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - audit/fasttrack-baseline-7f96d3c8
+  pull_request:
+    branches:
+      - ux/trace-graph-navigator-polish
 
 permissions:
   contents: read
