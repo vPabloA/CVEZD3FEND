@@ -1,0 +1,46 @@
+name: Step A publish audit tree
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: write
+
+jobs:
+  publish-audit-tree:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Publish exact validated tree to audit branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          product_head=1c7b77f715c7a75feaff2d5651a6a854ae1373cb
+          validated_tree=b5da56449cea1215027d6665202f9a44bf9eee6d
+          git fetch origin feat/multi-cve-contextual-analysis audit/step-a-preflight-20260618
+          test "$(git rev-parse origin/feat/multi-cve-contextual-analysis)" = "$product_head"
+          git checkout -B audit-tree "$product_head"
+          git show origin/audit/step-a-preflight-20260618:audit/step-a.patch.gz.b64 \
+            | tr -d '\n' | base64 --decode | gzip --decompress > /tmp/step-a.patch
+          echo "f58c6f6496a1fb007e1fb645b2543d2b0854f7ca18f706f176e236d8ce40a498  /tmp/step-a.patch" | sha256sum --check
+          git apply --check /tmp/step-a.patch
+          git apply /tmp/step-a.patch
+          git add \
+            src/CVEzD3FEND/api/app.py \
+            src/CVEzD3FEND/reasoning/__init__.py \
+            src/CVEzD3FEND/reasoning/batch.py \
+            src/CVEzD3FEND/reasoning/batch_selection.py \
+            src/CVEzD3FEND/reasoning/models.py \
+            tests/integration/test_batch_reasoning_api.py \
+            tests/unit/test_batch_reasoning.py
+          test "$(git write-tree)" = "$validated_tree"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(audit): stage validated Step A tree"
+          git push origin HEAD:audit/step-a-validated-commit
