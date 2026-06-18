@@ -109,7 +109,8 @@ jobs:
             --exclude=.venv \
             --exclude=web/node_modules \
             --exclude=.pytest_cache \
-            -czf step-a-workspace.tar.gz .
+            -czf /tmp/step-a-workspace.tar.gz .
+          mv /tmp/step-a-workspace.tar.gz step-a-workspace.tar.gz
           sha256sum step-a-workspace.tar.gz | tee step-a-workspace.sha256
 
       - name: Upload preflight evidence
