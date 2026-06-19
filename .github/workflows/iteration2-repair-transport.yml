@@ -1,0 +1,46 @@
+name: Iteration 2 repair transport
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/iteration2-preflight-20260618
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Rebuild verified feature transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat \
+            audit/iteration2/patches/feature.00.0 \
+            audit/iteration2/patches/feature.00.1 \
+            audit/iteration2/patches/feature.00.2 \
+            audit/iteration2/patches/feature.00.3 \
+            > /tmp/feature.00
+          echo "d615fcf651fc22ca26c2155006e6c639017434ee31e100d5e2a4c22ab8ede858  /tmp/feature.00" | sha256sum --check
+          {
+            cat /tmp/feature.00
+            cat audit/iteration2/patches/feature.01
+            cat audit/iteration2/patches/feature.02
+          } | tr -d '\n' | base64 --decode | xz --decompress > /tmp/feature.patch
+          echo "9b8609e3ddec73db7b95cca116424b7f543361afe780d71d22b496c2e2490296  /tmp/feature.patch" | sha256sum --check
+          cp /tmp/feature.00 audit/iteration2/patches/feature.00
+          if git diff --quiet -- audit/iteration2/patches/feature.00; then
+            echo "Transport already correct."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add audit/iteration2/patches/feature.00
+          git commit -m "chore(audit): repair Iteration 2 feature transport"
+          git push origin HEAD:audit/iteration2-preflight-20260618
