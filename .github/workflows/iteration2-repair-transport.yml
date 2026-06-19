@@ -23,7 +23,10 @@ jobs:
           set -euo pipefail
           cat \
             audit/iteration2/patches/feature.00.0 \
-            audit/iteration2/patches/feature.00.1 \
+            audit/iteration2/patches/feature.00.1.0 \
+            audit/iteration2/patches/feature.00.1.1 \
+            audit/iteration2/patches/feature.00.1.2 \
+            audit/iteration2/patches/feature.00.1.3 \
             audit/iteration2/patches/feature.00.2 \
             audit/iteration2/patches/feature.00.3 \
             > /tmp/feature.00
