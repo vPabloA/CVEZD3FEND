@@ -1,6 +1,8 @@
 # CVEzD3FEND
 
-**Static-first defensive intelligence navigator.** CVEzD3FEND turns the
+**Multi-CVE contextual defensive intelligence navigator.** CVEzD3FEND combines
+Galeax/CVE2CAPEC breadth with deterministic contextual route selection, an
+optional AI-assisted cherry-picker, and a reduced evidence-backed graph over the
 semantic chain
 
 ```
@@ -9,8 +11,10 @@ CVE -> CWE -> CAPEC -> ATT&CK -> D3FEND -> ATLAS -> Controls -> Detections
 ```
 
 into navigable, provenance-backed routes for SOC analysts, threat hunters,
-detection engineers, and CTEM leads — entirely from a single local
-`knowledge-bundle.json`, with **zero third-party API calls at runtime**.
+detection engineers, CTEM leads, and executives. The static bundle remains the
+canonical graph; the optional FastAPI sidecar performs request-scoped exact
+Galeax lookups for arbitrary CVE years and serves the contextual multi-CVE
+workbench.
 
 ## Principles
 
@@ -45,6 +49,53 @@ make serve           # serve the built SPA + bundle locally
 ```
 
 Then open http://127.0.0.1:8787.
+
+## Multi-CVE contextual analysis
+
+The primary product experience is the **Multi-CVE Contextual Analysis
+Workbench** at `/#/analyze`:
+
+1. Paste one or many CVE identifiers using lines, commas, or spreadsheet
+   whitespace. Invalid and missing identifiers are reported without cancelling
+   valid CVEs.
+2. Declare technologies, exposure, operational priorities, audience, and a
+   Top-K of 5, 10, or 20 routes.
+3. Receive **Selected** by default: deterministic scoring, explicit coverage
+   policy, ranked routes, an aggregated `selected_graph`, convergences,
+   provenance, gaps, and backend-authored executive/operational/technical
+   narrative.
+4. Request **All candidates** explicitly when complete evidence exploration is
+   needed. The browser consumes `candidate_graph` exactly as delivered; it never
+   creates edges or resolves mappings.
+5. Optionally enable AI-assisted reranking. AI can reorder only validated
+   deterministic-shortlist route IDs. It cannot create nodes, mappings, or
+   edges, and deterministic fallback remains available.
+
+> Galeax shows everything related. CVEzD3FEND shows what matters most, explains
+> why, and preserves access to the complete evidence.
+
+### API example
+
+```bash
+curl -sS http://127.0.0.1:8000/api/reason/batch \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "cve_ids": ["CVE-2025-0168", "CVE-2026-0544", "CVE-2025-99999999", "invalid"],
+    "context": {
+      "technologies": ["Windows", "Active Directory"],
+      "exposure": ["internet-facing", "production"],
+      "priorities": ["initial access", "credential theft"],
+      "audience": "SOC"
+    },
+    "top_k": 5,
+    "include_all_candidates": false,
+    "use_ai": false
+  }'
+```
+
+Set `include_all_candidates` to `true` only for the on-demand All view. The
+initial response intentionally omits `candidate_graph`; omission means “not
+included,” not “no candidates.”
 
 ## CLI
 
@@ -94,7 +145,10 @@ data/                  raw/cache/dist/review (generated, gitignored except .gitk
 ## AI assistance
 
 AI is **offline by default** (`CVEZD3FEND_AI_ENABLED=false`, `mock` provider).
-Enabling it only affects:
+The multi-CVE workbench functions deterministically without AI. When enabled,
+AI-assisted batch reranking is limited to the validated deterministic shortlist
+and declares deterministic fallback. Existing AI candidate governance remains
+unchanged. Enabling AI also affects:
 
 - Optional narrative expansion of always-available, template-backed "context"
   outputs (`explain_route`, detection briefs, hunt hypotheses) — these never

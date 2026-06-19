@@ -2,7 +2,9 @@
 
 ## Vision
 
-CVEzD3FEND is a **static-first defensive intelligence navigator**. It converts
+CVEzD3FEND is a **multi-CVE contextual defensive intelligence navigator** and a
+static-first knowledge product. Its primary experience is **Multi-CVE contextual
+analysis with deterministic and optional AI-assisted route cherry-picking.** It converts
 the semantic chain
 
 ```
@@ -71,33 +73,59 @@ SOC/CTEM program.
 - Not a real-time feed — the bundle is rebuilt on demand (`CVEzD3FEND build`),
   not streamed.
 
-## Reasoning Workbench
+## Multi-CVE Contextual Analysis Workbench
 
-The frontend (`web/`) exposes the live reasoning plane (`/api/enrich`,
-`/api/reason`, `/api/provenance`, `/api/evidence`, `/api/ai/propose-route`,
-`/api/ai/validate-route`, `/api/review/promote-edge`) through a dedicated
-"Reasoning Workbench" view at `/analyze` (see `docs/UI_GUIDE.md`). For a
-single CVE it surfaces: risk evidence (CVSS/EPSS/KEV/exploitability), a
-classified route contract (`ReasoningEdgeClassification`, 7 levels from
-`official_explicit` to `unverified`), the engine's narrative, a provenance
-ledger grouped by source, SOC Action Pack / Detection Engineering / Threat
-Hunting / CTEM outputs, and exports (markdown/tree/mermaid). AI-assisted
-route proposals and validation are shown as visible, labeled facts — never
-hidden chain-of-thought — and any non-canonical edge can only be promoted by
-a named human reviewer (AI_ASSISTANCE_CONTRACT). If the optional API sidecar
-is offline or the reasoning plane reports itself unavailable, the workbench
-shows that honestly with CLI start instructions, never a fake result.
+The frontend (`web/`) exposes `POST /api/reason/batch` as the primary product
+experience at `/analyze`. A user can paste one CVE or a batch copied from a
+spreadsheet, ticket, or email; declare technologies, exposure, priorities,
+audience, Top-K, and optional AI-assisted reranking; and receive a reduced,
+explainable and navigable decision surface.
 
-The workbench's center pane is the **Threat-Defense Knowledge Graph
-Navigator** (`components/reasoning/graph/ThreatDefenseGraphNavigator.tsx`):
-an interactive graph of the same classified reasoning route, with focused
-route / reasoning neighborhood / mitigation path / full traceability /
-evidence modes, a selection inspector, classification filters, and
-official-source links (see `docs/UI_GUIDE.md` and UIX_CONTRACT §10).
+The mandatory flow is:
+
+```
+Multiple CVEs
+  -> exact request-scoped Galeax lookup
+  -> catalog-demonstrated routes
+  -> consolidation and canonical-ID deduplication
+  -> user context
+  -> deterministic scoring
+  -> optional validated AI cherry-picker
+  -> multi-route Top-K
+  -> aggregated graph
+  -> selection explanation
+  -> executive, operational and technical narrative
+```
+
+**Selected is the default product.** The first request returns ranked
+`selected_routes`, a complete server-authored `selected_graph`, selected
+ATT&CK/D3FEND convergences, provenance, gaps, warnings, and backend-authored
+narrative. **All candidates is opt-in.** It reuses the same request signature
+with `include_all_candidates=true`, preserves Selected, consumes the complete
+`candidate_graph`, and does not recalculate or infer relations in React.
+
+The workbench reuses the existing **Threat-Defense Knowledge Graph Navigator**
+(`components/reasoning/graph/ThreatDefenseGraphNavigator.tsx`) and its trace/force
+layouts, inspector, filters, density controls, fullscreen and progressive
+disclosure. The batch adapter is a visual projection only: it deduplicates
+canonical IDs and associates delivered nodes/edges with CVEs and routes, but it
+never creates an edge, resolves a mapping, or mutates provenance.
+
+The ranked-route list exposes `selection_rank`, score, `selection_basis`, CWE,
+CAPEC, ATT&CK, D3FEND, convergence/reuse counts, completeness, gaps and
+backend-provided selection reasons. The UI presents no hidden chain-of-thought.
+Narrative is rendered as safe text and `audience` changes presentation only,
+never deterministic scoring. AI can select or reorder only route IDs from the
+deterministic shortlist; catalogs remain the sole proof of every edge.
+
+The original single-CVE endpoint remains available for compatibility, but the
+primary Analyze experience is multi-CVE. If the API is unavailable, Galeax is
+unavailable, a response is partial, All fails, or zero routes exist, the UI
+shows an explicit degraded state and preserves any valid Selected result.
 
 ## Roadmap (indicative)
 
-- **Now**: CVE2CAPEC-derived bundle (techniques_association, CVE year DBs,
+- **Now / delivered FastTrack product**: multi-CVE contextual analysis, deterministic and optional AI-assisted route cherry-picking, Selected-by-default and All-on-demand aggregated graphs, ranked explanations, convergences, narrative, provenance and partial-state handling; plus the CVE2CAPEC-derived bundle (techniques_association, CVE year DBs,
   ATLAS, D3FEND, CAPEC, CWE), deterministic graph, routes, coverage, gaps, SOC
   Action Packs, static frontend, CLI, optional API/MCP, governed AI candidate
   queue with mock provider, the Reasoning Workbench (`/analyze`) exposing the

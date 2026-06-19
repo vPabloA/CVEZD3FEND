@@ -1,4 +1,4 @@
-# PLAN.md — Final Phase: Semantic Integrity, Operability, Accessibility and Release Hardening
+# PLAN.md — FastTrack Product Delivery and Non-Blocking Hardening Roadmap
 
 This file is the living tracker for the Final Phase closure of CVEzD3FEND.
 It did not exist before this phase; it is created here as the single record
@@ -8,6 +8,19 @@ gates close — do not create parallel planning documents.
 Principle (non-negotiable, unchanged from the project brief):
 
 > CVEzD3FEND does not draw associations: it materializes traceable assertions.
+
+## FastTrack product delivery
+
+| Product slice | Status | Evidence |
+|---|---|---|
+| FastTrack Iteration 1 | **Completed** | Multi-CVE backend, exact Galeax lookup, demonstrated catalog routes, deterministic scoring, optional shortlist-only AI reranking, Selected/All graph contracts, provenance and batch API. |
+| FastTrack Iteration 2 | **Completed** | Multi-CVE Contextual Analysis Workbench, context controls, Selected default, All opt-in, aggregated graph, CVE filters, ranking, convergences, safe narrative, evidence, accessibility and degraded states. |
+| Product target | **Delivered** | Several CVEs → context → Top-K → Selected/All → explainable graph → narrative → complete evidence. |
+
+FastTrack completion does not claim that every historical enterprise-hardening
+Gate below is complete. Gates 2–24 remain a separate, non-blocking roadmap and
+are not expanded by the FastTrack delivery.
+
 
 ## How to read this file
 
@@ -94,7 +107,7 @@ to this fix).
 | Duplicate taxonomy entries resolving to the same `(capec, attack)` pair are silently deduped (deterministic edge id), no integrity finding recorded | Low | Functionally correct — no duplicate canonical edge is ever written | Gate 3 (integrity findings) needs a `duplicate_mapping` finding type for observability |
 | `starlette.testclient`/`httpx` deprecation warning in test output | Low | Pre-existing, unrelated to Phase 2B, cosmetic | Before adopting a `httpx` major version that removes the shim |
 
-## Gates 2-24 — Status
+## Historical Gates 2-24 — Non-blocking roadmap status
 
 Not started in this session by explicit user scoping decision (this session's
 mandate was: create `PLAN.md` + close Gate 1, document the rest as backlog —
@@ -127,12 +140,13 @@ what Gate 0 actually found, not assumed.
 | 23 | Build and Release Hardening | Not started | Depends on Gate 5 (no digest/reproducibility mechanism exists yet to harden). |
 | 24 | Git and Delivery Discipline | Partial | PR #6 confirmed open/draft/mergeable; this session's commits follow the capability-slice convention (this slice: "semantic closure"). |
 
-## Definition of Done — tracked, not yet met
+## Historical full-program Definition of Done — non-blocking roadmap
 
-None of the four DoD sections (Semantic, UX, Accessibility, Operability) from
-the phase brief are met yet — Gate 1 alone does not close any of them; each
-requires Gates 2-24. This file will be updated, gate by gate, as each is
-actually closed with evidence, in separate commits/sessions.
+The earlier 24-Gate program describes broader enterprise hardening beyond the
+FastTrack product target. FastTrack product acceptance is complete; remaining
+Gate rows are future improvements and do not block the delivered multi-CVE
+product. They must still be closed with code and evidence if that broader
+program is resumed.
 
 ## Commits this session
 
