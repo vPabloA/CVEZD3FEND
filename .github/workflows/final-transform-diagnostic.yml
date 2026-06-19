@@ -29,8 +29,12 @@ jobs:
         run: python /tmp/source_01.py
       - name: Apply source transform 02
         run: python /tmp/source_02.py
-      - name: Apply source transform 03
-        run: python /tmp/source_03.py
+      - name: Apply source transform 03a
+        run: python /tmp/source_03a.py
+      - name: Apply source transform 03b
+        run: python /tmp/source_03b.py
+      - name: Apply source transform 03c
+        run: python /tmp/source_03c.py
       - name: Apply graph tests 01a
         run: python /tmp/tests_01a.py
       - name: Apply graph tests 01b
