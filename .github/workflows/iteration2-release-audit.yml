@@ -1,0 +1,165 @@
+name: Iteration 2 release audit
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: read
+
+jobs:
+  release-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout product head
+        uses: actions/checkout@v4
+        with:
+          ref: feat/multi-cve-contextual-analysis
+          fetch-depth: 0
+
+      - name: Verify release state
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=3857b2adb0d5cb18b7d1260397c31fbd87259d36
+          base=2eae7cf325c8ac25fe92c58494a003e4d8cf08f4
+          test "$(git rev-parse HEAD)" = "$expected"
+          test -z "$(git status --short)"
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          test "$(git rev-list --count "$base"..HEAD)" = "3"
+          test -z "$(git diff --name-only "$base" HEAD -- '.github/workflows/*' 'audit/*' 'src/*' 'tests/*' 'web/package.json' 'web/package-lock.json')"
+          git rev-parse HEAD > iteration2-release-head.txt
+          git log --oneline "$base"..HEAD > iteration2-release-commits.txt
+          git diff --stat "$base" HEAD > iteration2-release-diff-stat.txt
+          git diff --name-only "$base" HEAD > iteration2-release-files.txt
+
+      - name: Restore generated bundle artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/dist
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/knowledge-bundle.json > data/dist/knowledge-bundle.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/promoted-edges.json > data/dist/promoted-edges.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/quality-report.json > data/dist/quality-report.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,api]'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend
+        working-directory: web
+        run: npm ci
+
+      - name: Compile Python
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m compileall src tests 2>&1 | tee iteration2-release-compileall.txt
+
+      - name: Run backend tests
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -q 2>&1 | tee iteration2-release-pytest.txt
+
+      - name: Run frontend lint
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee ../iteration2-release-frontend-lint.txt
+
+      - name: Run frontend tests
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee ../iteration2-release-frontend-test.txt
+
+      - name: Run frontend build
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ../iteration2-release-frontend-build.txt
+
+      - name: Validate diff and frontend trust boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check 2eae7cf325c8ac25fe92c58494a003e4d8cf08f4 HEAD | tee iteration2-release-git-diff-check.txt
+          ! grep -R "dangerouslySetInnerHTML" web/src
+          ! grep -R "javascript:" web/src
+          grep -R "include_all_candidates: false" web/src >/dev/null
+          grep -R "candidate_graph" web/src/lib web/src/hooks web/src/components web/src/pages >/dev/null
+          printf '%s\n' \
+            'No dangerouslySetInnerHTML found.' \
+            'No javascript: URL literals found.' \
+            'Selected request explicitly uses include_all_candidates=false.' \
+            'Candidate graph is consumed through typed contracts.' \
+            > iteration2-release-security.txt
+
+      - name: Run real multi-CVE demonstration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin audit/iteration2-preflight-20260618
+          git show origin/audit/iteration2-preflight-20260618:audit/iteration2_demo.py > /tmp/iteration2_demo.py
+          python /tmp/iteration2_demo.py | tee iteration2-release-real-demo.txt
+
+      - name: Smoke API and verify visual evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          CVEzD3FEND api > iteration2-release-api.log 2>&1 & api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/health > iteration2-release-health.json; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/api/health > iteration2-release-health.json
+          test "$(find web/docs/screenshots -maxdepth 1 -name 'multi-cve-*.png' | wc -l)" = "6"
+          find web/docs/screenshots -maxdepth 1 -name 'multi-cve-*.png' -printf '%f %s bytes\n' | sort > iteration2-release-screenshots.txt
+          awk '$2 < 5000 { exit 1 }' iteration2-release-screenshots.txt
+
+      - name: Upload release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: iteration2-release-audit
+          path: |
+            iteration2-release-head.txt
+            iteration2-release-commits.txt
+            iteration2-release-diff-stat.txt
+            iteration2-release-files.txt
+            iteration2-release-compileall.txt
+            iteration2-release-pytest.txt
+            iteration2-release-frontend-lint.txt
+            iteration2-release-frontend-test.txt
+            iteration2-release-frontend-build.txt
+            iteration2-release-git-diff-check.txt
+            iteration2-release-security.txt
+            iteration2-release-real-demo.txt
+            iteration2-real-selected.json
+            iteration2-real-all.json
+            iteration2-real-summary.json
+            iteration2-release-health.json
+            iteration2-release-api.log
+            iteration2-release-screenshots.txt
+            web/docs/screenshots/multi-cve-*.png
+          if-no-files-found: error
+          retention-days: 7
