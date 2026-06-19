@@ -1,0 +1,42 @@
+name: Final frontend regression diagnostic
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout audit harness
+        uses: actions/checkout@v4
+        with:
+          ref: audit/iteration2-preflight-20260618
+          fetch-depth: 0
+      - name: Prepare correction
+        run: |
+          cp -r audit/final-closure /tmp/final-closure
+          git fetch origin feat/multi-cve-contextual-analysis
+          git checkout -B correction 3857b2adb0d5cb18b7d1260397c31fbd87259d36
+          python /tmp/final-closure/apply_all.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install frontend
+        working-directory: web
+        run: npm ci
+      - name: Graph adapter regressions
+        working-directory: web
+        run: npx vitest run src/test/batchGraphAdapter.test.ts --reporter=verbose
+      - name: Analyze page regressions
+        working-directory: web
+        run: npx vitest run src/test/AnalyzePage.test.tsx --reporter=verbose
+      - name: Remaining frontend suite
+        working-directory: web
+        run: npx vitest run src/test/CveAnalyzeForm.test.tsx src/test/batchApi.test.ts src/test/batchComponents.test.tsx src/test/cveInput.test.ts src/test/ThreatDefenseGraphNavigator.test.tsx src/test/graphAdapter.test.ts --reporter=verbose
