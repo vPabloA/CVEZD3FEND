@@ -1,0 +1,206 @@
+name: Iteration 2 final validation
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: write
+
+jobs:
+  validate-stage:
+    runs-on: ubuntu-latest
+    env:
+      PRODUCT_HEAD: 2eae7cf325c8ac25fe92c58494a003e4d8cf08f4
+      PRODUCT_BRANCH: feat/multi-cve-contextual-analysis
+      AUDIT_BRANCH: audit/iteration2-preflight-20260618
+      STAGING_BRANCH: audit/iteration2-validated-v1
+    steps:
+      - name: Checkout audit harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Reconstruct audited patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$PRODUCT_BRANCH" "$AUDIT_BRANCH"
+          test "$(git rev-parse origin/$PRODUCT_BRANCH)" = "$PRODUCT_HEAD"
+          git checkout -B iteration2-product "$PRODUCT_HEAD"
+          for part in feature.00 feature.01 feature.02; do git show "origin/$AUDIT_BRANCH:audit/iteration2/patches/$part"; done | tr -d '\n' | base64 --decode | xz --decompress > /tmp/feature.patch
+          git show "origin/$AUDIT_BRANCH:audit/iteration2/patches/tests.00" | tr -d '\n' | base64 --decode | xz --decompress > /tmp/tests.patch
+          git show "origin/$AUDIT_BRANCH:audit/iteration2/patches/docs.00" | tr -d '\n' | base64 --decode | xz --decompress > /tmp/docs.patch
+          echo "9b8609e3ddec73db7b95cca116424b7f543361afe780d71d22b496c2e2490296  /tmp/feature.patch" | sha256sum --check
+          echo "828d98b2eb17e366abdd6c85ff800c89e5a7a48a39ec51f9e68e5d488a15ecdc  /tmp/tests.patch" | sha256sum --check
+          echo "174c2f9dcb94e2056c9f9ee01ce6da074eaa147bf135d5d1093bb4426bb13ef6  /tmp/docs.patch" | sha256sum --check
+          git apply --check /tmp/feature.patch
+          git apply /tmp/feature.patch
+          test -z "$(git diff --name-only -- src tests)"
+          git diff --check
+
+      - name: Commit product capability
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/src
+          git commit -m "feat(product): add multi-cve contextual analysis workbench"
+
+      - name: Commit product tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check /tmp/tests.patch
+          git apply /tmp/tests.patch
+          git add web/src/test
+          git diff --cached --check
+          git commit -m "test(product): validate multi-cve end-to-end experience"
+
+      - name: Apply product documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check /tmp/docs.patch
+          git apply /tmp/docs.patch
+          git diff --check
+
+      - name: Restore generated bundle artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/dist
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/knowledge-bundle.json > data/dist/knowledge-bundle.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/promoted-edges.json > data/dist/promoted-edges.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/quality-report.json > data/dist/quality-report.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install backend and visual tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,api]'
+          python -m pip install selenium
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend
+        working-directory: web
+        run: npm ci
+
+      - name: Compile Python
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m compileall src tests 2>&1 | tee iteration2-final-compileall.txt
+
+      - name: Run backend tests
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -q 2>&1 | tee iteration2-final-pytest.txt
+
+      - name: Run frontend lint
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee ../iteration2-final-frontend-lint.txt
+
+      - name: Run frontend tests
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee ../iteration2-final-frontend-test.txt
+
+      - name: Run frontend build
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ../iteration2-final-frontend-build.txt
+
+      - name: Check whitespace
+        shell: bash
+        run: |
+          set -o pipefail
+          git diff --check 2>&1 | tee iteration2-final-git-diff-check.txt
+
+      - name: Run real multi-CVE demonstration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "origin/$AUDIT_BRANCH:audit/iteration2_demo.py" > /tmp/iteration2_demo.py
+          python /tmp/iteration2_demo.py | tee iteration2-real-demo.txt
+
+      - name: Start product services and capture visual evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          CVEzD3FEND api > iteration2-api.log 2>&1 & echo $! > /tmp/api.pid
+          (cd web && npm run dev -- --host 127.0.0.1 --port 5173 > ../iteration2-vite.log 2>&1) & echo $! > /tmp/vite.pid
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8000/api/health >/dev/null && curl -fsS http://127.0.0.1:5173/ >/dev/null && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8000/api/health | tee iteration2-health.json
+          git show "origin/$AUDIT_BRANCH:audit/iteration2_screenshots.py" > /tmp/iteration2_screenshots.py
+          python /tmp/iteration2_screenshots.py
+          kill "$(cat /tmp/api.pid)" "$(cat /tmp/vite.pid)" || true
+
+      - name: Commit documentation and screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add README.md PLAN.md docs/PRODUCT_VISION.md web/docs/MULTI_CVE_WORKBENCH.md web/docs/screenshots/multi-cve-*.png
+          git diff --cached --check
+          git commit -m "docs(product): align vision and add real workbench evidence"
+
+      - name: Verify and publish staging branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-list --count "$PRODUCT_HEAD"..HEAD)" = "3"
+          git diff --check "$PRODUCT_HEAD" HEAD
+          git rev-parse HEAD > iteration2-new-head.txt
+          git diff --stat "$PRODUCT_HEAD" HEAD > iteration2-diff-stat.txt
+          git diff --name-only "$PRODUCT_HEAD" HEAD > iteration2-files-changed.txt
+          git log --oneline "$PRODUCT_HEAD"..HEAD > iteration2-commits.txt
+          git push origin "HEAD:$STAGING_BRANCH"
+
+      - name: Upload final evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: iteration2-final-validation
+          path: |
+            iteration2-final-compileall.txt
+            iteration2-final-pytest.txt
+            iteration2-final-frontend-lint.txt
+            iteration2-final-frontend-test.txt
+            iteration2-final-frontend-build.txt
+            iteration2-final-git-diff-check.txt
+            iteration2-real-selected.json
+            iteration2-real-all.json
+            iteration2-real-summary.json
+            iteration2-real-demo.txt
+            iteration2-health.json
+            iteration2-api.log
+            iteration2-vite.log
+            iteration2-new-head.txt
+            iteration2-diff-stat.txt
+            iteration2-files-changed.txt
+            iteration2-commits.txt
+            web/docs/screenshots/multi-cve-*.png
+          if-no-files-found: error
+          retention-days: 7
