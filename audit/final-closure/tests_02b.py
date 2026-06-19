@@ -27,10 +27,11 @@ addition = r'''
     await user.click(await screen.findByRole("tab", { name: /Load all candidates/i }));
     const density = await screen.findByText(/complete universe contains 73 routes and 79 nodes/i);
     expect(density).toHaveClass("bg-violet-950", "text-violet-50");
+    expect(density).toHaveTextContent(/progressive visual disclosure/i);
+    expect(density).toHaveTextContent(/route list and backend evidence remain complete/i);
     expect(screen.queryByText(/This route is partial/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Trace step 1: CVE-2025-0168/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Trace step 5: D3-LFP/i })).toBeInTheDocument();
-    expect(screen.getByText(/hidden/i)).toBeInTheDocument();
   });
 '''
 path.write_text(text[:index] + addition + text[index:], encoding="utf-8")
