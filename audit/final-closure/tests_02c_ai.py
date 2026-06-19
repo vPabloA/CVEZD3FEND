@@ -15,7 +15,7 @@ addition = r'''
       selection_summary: { ...base.selection_summary, selection_mode: "ai_reranked", fallback_used: false },
     });
     await submitDefault(user);
-    expect(await screen.findByText("AI reranked")).toBeInTheDocument();
+    expect((await screen.findAllByText("AI reranked")).length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText("Deterministic fallback")).not.toBeInTheDocument();
     expect(screen.queryByText("Human review required")).not.toBeInTheDocument();
   });
