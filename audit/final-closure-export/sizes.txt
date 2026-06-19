@@ -1,0 +1,3 @@
+181535 /tmp/current-product.patch
+ 49196 /tmp/current-product.patch.xz.b64
+230731 total
