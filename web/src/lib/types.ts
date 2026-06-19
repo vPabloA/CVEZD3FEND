@@ -60,6 +60,11 @@ export interface BundleEdge {
   confidence: number;
   deterministic: boolean;
   inferred: boolean;
+  resolution_state?: string;
+  lifecycle_state?: string;
+  scope_state?: string;
+  assertion_type?: string;
+  confidence_basis?: string;
   source_ref: string | null;
   source_url: string | null;
   evidence: string[];

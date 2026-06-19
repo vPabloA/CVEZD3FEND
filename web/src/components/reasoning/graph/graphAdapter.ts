@@ -1,5 +1,6 @@
 import { classificationNeedsReview } from "@/lib/colors";
-import type { ReasoningEdge, ReasoningResult } from "@/lib/reasoningTypes";
+import type { GraphSlice, RankedRoute, ReasoningEdge, ReasoningResult } from "@/lib/reasoningTypes";
+import type { BundleEdge, BundleNode } from "@/lib/types";
 import { buildTrustedOfficialUrl } from "./officialUrlBuilder";
 import { graphLinkSourceId, graphLinkTargetId } from "./graphRuntime";
 import type { GraphLinkData, GraphModel, GraphNodeData, GraphNodeKind, GraphRouteRole, GraphSelection } from "./graphTypes";
@@ -40,6 +41,17 @@ const MODE_CAP: Record<string, number> = {
 function num(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
+
+function safeExternalUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 
 function routeRoleFor(id: string, result: ReasoningResult): GraphRouteRole {
   if (result.route.canonical_chain.includes(id)) return "canonical";
@@ -190,13 +202,16 @@ export function buildGraphModel(result: ReasoningResult, mode: string, selection
     confidence: num(edge.confidence, 0.5),
     evidence: edge.evidence.slice(),
     sourceRefs: edge.source_refs.slice(),
-    sourceUrl: edge.source_url,
+    sourceUrl: safeExternalUrl(edge.source_url),
     note: edge.note,
     deterministic: edge.deterministic,
     inferred: edge.inferred,
     conditional: edge.conditional,
     weakFit: edge.weak_fit,
     reviewRequired: classificationNeedsReview(edge.classification),
+    cveIds: [],
+    routeIds: [],
+    backendMetadata: {},
   }));
 
   const ensureNode = (id: string): GraphNodeData => {
@@ -219,6 +234,11 @@ export function buildGraphModel(result: ReasoningResult, mode: string, selection
       officialUrl: buildTrustedOfficialUrl(id, result.edges.find((edge) => edge.source === id || edge.target === id)?.source_url ?? null),
       reviewRequired: routeRole === "conditional" || routeRole === "weak-fit" || result.edges.some((edge) => (edge.source === id || edge.target === id) && classificationNeedsReview(edge.classification)),
       synthetic: false,
+      cveIds: [],
+      routeIds: [],
+      sharedCveCount: 1,
+      defensiveReuseCount: 1,
+      backendMetadata: {},
     };
     nodesById.set(id, node);
     return node;
@@ -280,5 +300,190 @@ export function buildGraphModel(result: ReasoningResult, mode: string, selection
     visibleLinkIds: new Set(filteredLinks.map((link) => link.id)),
     routeChain,
     routeConfidence,
+  };
+}
+
+
+function edgeState(edge: BundleEdge, field: "resolution_state" | "scope_state"): string | undefined {
+  const direct = edge[field];
+  if (typeof direct === "string") return direct;
+  const metadataValue = edge.metadata?.[field];
+  return typeof metadataValue === "string" ? metadataValue : undefined;
+}
+
+function classificationForBundleEdge(edge: BundleEdge): ReasoningEdge["classification"] {
+  if (edge.inferred) return "analytical_inferred";
+  const resolution = edgeState(edge, "resolution_state");
+  if (resolution === "unresolved" || resolution === "invalid") return "unverified";
+  if (edgeState(edge, "scope_state") === "contextual") return "conditional";
+  return edge.deterministic ? "dataset_derived" : "official_incomplete";
+}
+
+function batchRouteRole(node: BundleNode, routeIds: string[], primaryRouteIds: Set<string>): GraphRouteRole {
+  if (node.type === "defend" || node.type === "control" || node.type === "mitigation") return "defensive";
+  if (node.type === "gap") return "weak-fit";
+  if (routeIds.some((routeId) => primaryRouteIds.has(routeId))) return "primary";
+  return routeIds.length > 0 ? "secondary" : "context";
+}
+
+function routeIndex(routes: RankedRoute[]): {
+  nodeRoutes: Map<string, Set<string>>;
+  edgeRoutes: Map<string, Set<string>>;
+  nodeCves: Map<string, Set<string>>;
+  edgeCves: Map<string, Set<string>>;
+} {
+  const nodeRoutes = new Map<string, Set<string>>();
+  const edgeRoutes = new Map<string, Set<string>>();
+  const nodeCves = new Map<string, Set<string>>();
+  const edgeCves = new Map<string, Set<string>>();
+  routes.forEach((route) => {
+    route.node_ids.forEach((id) => {
+      const routesForNode = nodeRoutes.get(id) ?? new Set<string>();
+      routesForNode.add(route.route_id);
+      nodeRoutes.set(id, routesForNode);
+      const cvesForNode = nodeCves.get(id) ?? new Set<string>();
+      cvesForNode.add(route.cve_id);
+      nodeCves.set(id, cvesForNode);
+    });
+    route.edge_ids.forEach((id) => {
+      const routesForEdge = edgeRoutes.get(id) ?? new Set<string>();
+      routesForEdge.add(route.route_id);
+      edgeRoutes.set(id, routesForEdge);
+      const cvesForEdge = edgeCves.get(id) ?? new Set<string>();
+      cvesForEdge.add(route.cve_id);
+      edgeCves.set(id, cvesForEdge);
+    });
+  });
+  return { nodeRoutes, edgeRoutes, nodeCves, edgeCves };
+}
+
+function prioritizeBatchIds(
+  nodes: GraphNodeData[],
+  links: GraphLinkData[],
+  selection: GraphSelection
+): string[] {
+  const focusNodeId = selection?.kind === "node" ? selection.id : null;
+  const focusEdge = selection?.kind === "edge" ? links.find((edge) => edge.id === selection.id) : null;
+  return [...nodes]
+    .sort((a, b) => {
+      const roleDifference = ROUTE_ROLE_PRIORITY[a.routeRole] - ROUTE_ROLE_PRIORITY[b.routeRole];
+      if (roleDifference !== 0) return roleDifference;
+      const kindDifference = KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind];
+      if (kindDifference !== 0) return kindDifference;
+      const focusBoostA =
+        a.id === focusNodeId ||
+        (focusEdge && (a.id === graphLinkSourceId(focusEdge) || a.id === graphLinkTargetId(focusEdge)))
+          ? -2
+          : 0;
+      const focusBoostB =
+        b.id === focusNodeId ||
+        (focusEdge && (b.id === graphLinkSourceId(focusEdge) || b.id === graphLinkTargetId(focusEdge)))
+          ? -2
+          : 0;
+      if (focusBoostA !== focusBoostB) return focusBoostA - focusBoostB;
+      return a.id.localeCompare(b.id);
+    })
+    .map((node) => node.id);
+}
+
+export function projectGraphSliceByRoutes(slice: GraphSlice, routes: RankedRoute[]): GraphSlice {
+  const nodeIds = new Set(routes.flatMap((route) => route.node_ids));
+  const edgeIds = new Set(routes.flatMap((route) => route.edge_ids));
+  return {
+    nodes: slice.nodes.filter((node) => nodeIds.has(node.id)),
+    edges: slice.edges.filter((edge) => edgeIds.has(edge.id) && nodeIds.has(edge.source) && nodeIds.has(edge.target)),
+  };
+}
+
+export function buildBatchGraphModel(
+  slice: GraphSlice,
+  routes: RankedRoute[],
+  mode: string,
+  selection: GraphSelection,
+  focusedRouteId?: string | null
+): GraphModel {
+  const { nodeRoutes, edgeRoutes, nodeCves, edgeCves } = routeIndex(routes);
+  const focusedRoute = routes.find((route) => route.route_id === focusedRouteId) ?? routes[0];
+  const primaryRouteIds = new Set(focusedRoute ? [focusedRoute.route_id] : []);
+  const routeChain = focusedRoute?.node_ids.slice() ?? [];
+  const nodes: GraphNodeData[] = slice.nodes.map((node) => {
+    const routeIds = [...(nodeRoutes.get(node.id) ?? new Set<string>())].sort();
+    const cveIds = [...(nodeCves.get(node.id) ?? new Set<string>())].sort();
+    const routeRole = batchRouteRole(node, routeIds, primaryRouteIds);
+    const evidence = new Set<string>();
+    const sourceRefs = new Set<string>(node.source_refs);
+    slice.edges.forEach((edge) => {
+      if (edge.source === node.id || edge.target === node.id) {
+        edge.evidence.forEach((item) => evidence.add(item));
+        if (edge.source_ref) sourceRefs.add(edge.source_ref);
+      }
+    });
+    return {
+      id: node.id,
+      kind: nodeKindForId(node.id),
+      label: node.title || node.name || node.id,
+      shortLabel: shortLabel(node.id),
+      routeRole,
+      confidence: num(node.confidence, 1),
+      description: node.description || nodeDescription(nodeKindForId(node.id), routeRole),
+      tags: [...new Set([node.type.toUpperCase(), routeRole, ...node.tags])],
+      evidence: [...evidence].slice(0, 8),
+      sourceRefs: [...sourceRefs].slice(0, 8),
+      sourceUrl: safeExternalUrl(node.external_refs.find((ref) => /^https?:\/\//i.test(ref))),
+      officialUrl: buildTrustedOfficialUrl(node.id, safeExternalUrl(node.external_refs.find((ref) => /^https?:\/\//i.test(ref)))) ,
+      reviewRequired: node.inferred || routeRole === "weak-fit" || routeRole === "conditional",
+      synthetic: false,
+      cveIds,
+      routeIds,
+      sharedCveCount: cveIds.length || 1,
+      defensiveReuseCount: node.type === "defend" ? cveIds.length || 1 : 1,
+      backendMetadata: node.metadata,
+    };
+  });
+
+  const links: GraphLinkData[] = slice.edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    type: edge.type,
+    label: edge.label || edge.type.replace(/_/g, " "),
+    classification: classificationForBundleEdge(edge),
+    confidence: num(edge.confidence, 0.5),
+    evidence: edge.evidence.slice(),
+    sourceRefs: edge.source_ref ? [edge.source_ref] : [],
+    sourceUrl: safeExternalUrl(edge.source_url),
+    note: null,
+    deterministic: edge.deterministic,
+    inferred: edge.inferred,
+    conditional: edgeState(edge, "scope_state") === "contextual",
+    weakFit: edgeState(edge, "resolution_state") === "unresolved" || edgeState(edge, "resolution_state") === "invalid",
+    reviewRequired: edge.inferred || edgeState(edge, "resolution_state") === "unresolved" || edgeState(edge, "resolution_state") === "invalid",
+    cveIds: [...(edgeCves.get(edge.id) ?? new Set<string>())].sort(),
+    routeIds: [...(edgeRoutes.get(edge.id) ?? new Set<string>())].sort(),
+    backendMetadata: edge.metadata,
+  }));
+
+  const orderedIds = prioritizeBatchIds(nodes, links, selection);
+  const cap = visibleCap(mode);
+  const visibleNodeIds = new Set(orderedIds.slice(0, cap));
+  if (selection?.kind === "node") visibleNodeIds.add(selection.id);
+  if (selection?.kind === "edge") {
+    const selectedEdge = links.find((link) => link.id === selection.id);
+    if (selectedEdge) {
+      visibleNodeIds.add(graphLinkSourceId(selectedEdge));
+      visibleNodeIds.add(graphLinkTargetId(selectedEdge));
+    }
+  }
+  const visibleLinks = links.filter((link) => visibleNodeIds.has(graphLinkSourceId(link)) && visibleNodeIds.has(graphLinkTargetId(link)));
+  const visibleNodes = nodes.filter((node) => visibleNodeIds.has(node.id));
+  return {
+    nodes: visibleNodes,
+    links: visibleLinks,
+    hiddenNodeCount: Math.max(0, nodes.length - visibleNodes.length),
+    hiddenLinkCount: Math.max(0, links.length - visibleLinks.length),
+    visibleNodeIds,
+    visibleLinkIds: new Set(visibleLinks.map((link) => link.id)),
+    routeChain,
+    routeConfidence: focusedRoute?.confidence ?? 0,
   };
 }

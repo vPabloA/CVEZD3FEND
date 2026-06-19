@@ -152,6 +152,13 @@ export default function GraphInspector({
               )}
             </div>
             <p className="mt-1 text-xs text-slate-400">Confidence {selectedNode.confidence.toFixed(2)}</p>
+            {(selectedNode.cveIds.length > 0 || selectedNode.routeIds.length > 0) && (
+              <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 p-2 text-xs text-slate-400">
+                <p><span className="font-semibold text-slate-300">Related CVEs:</span> {selectedNode.cveIds.join(", ") || "None"}</p>
+                <p className="mt-1"><span className="font-semibold text-slate-300">Routes:</span> {selectedNode.routeIds.length} · shared across {selectedNode.sharedCveCount} CVE{selectedNode.sharedCveCount === 1 ? "" : "s"}</p>
+                {selectedNode.kind === "defend" && <p className="mt-1"><span className="font-semibold text-slate-300">Defensive reuse:</span> {selectedNode.defensiveReuseCount} CVE{selectedNode.defensiveReuseCount === 1 ? "" : "s"}</p>}
+              </div>
+            )}
             {selectedNodeMitigation && (
               <p className="mt-2 rounded-lg border border-defense/40 bg-green-950/30 px-2 py-1.5 text-sm text-green-100">
                 Mitigation relevance: this node participates in the path from attack reasoning to defensive action.
@@ -262,6 +269,12 @@ export default function GraphInspector({
             </div>
             <p className="mt-2 text-sm leading-relaxed text-slate-300">{selectedLink.label}</p>
             <p className="mt-1 text-xs text-slate-400">Confidence {selectedLink.confidence.toFixed(2)} · {selectedLink.type}</p>
+            {(selectedLink.cveIds.length > 0 || selectedLink.routeIds.length > 0) && (
+              <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/70 p-2 text-xs text-slate-400">
+                <p><span className="font-semibold text-slate-300">Related CVEs:</span> {selectedLink.cveIds.join(", ") || "None"}</p>
+                <p className="mt-1"><span className="font-semibold text-slate-300">Routes using edge:</span> {selectedLink.routeIds.length}</p>
+              </div>
+            )}
             <p className="mt-2 text-sm leading-relaxed text-slate-300">
               <span className="font-semibold text-slate-200">Role in trace:</span> {edgeTraceReading(selectedLink, routeChain, selectedLinkSourceId, selectedLinkTargetId)}
             </p>

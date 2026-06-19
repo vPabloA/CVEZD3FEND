@@ -6,7 +6,7 @@ import { buildGraphModel } from "./graphAdapter";
 import GraphControls from "./GraphControls";
 import GraphInspector from "./GraphInspector";
 import GraphLegend from "./GraphLegend";
-import type { GraphLayout, GraphLinkData, GraphMode, GraphNodeData, GraphRouteEmphasis, GraphSelection } from "./graphTypes";
+import type { GraphLayout, GraphLinkData, GraphMode, GraphModel, GraphNodeData, GraphRouteEmphasis, GraphSelection } from "./graphTypes";
 import { buildHighlightState } from "./pathHighlighting";
 import { graphLinkSourceId, graphLinkTargetId, isDefensiveGraphNode } from "./graphRuntime";
 import { applyTraceLayout, traceLayerIdForNode, type TraceLayoutPlan } from "./traceLayout";
@@ -110,14 +110,30 @@ function isSecondaryEmphasisLink(link: GraphLinkData): boolean {
   return link.conditional || link.weakFit || link.classification === "conditional" || link.classification === "weak_fit" || link.classification === "unverified";
 }
 
+export interface GraphNavigatorContext {
+  eyebrow?: string;
+  title?: string;
+  badge?: string;
+  status?: string;
+  sourceMode?: string;
+  reviewRequired?: boolean;
+  errors?: string[];
+  rootId?: string;
+  scopeLabel?: string;
+}
+
 export default function ThreatDefenseGraphNavigator({
   result,
+  graphBuilder,
+  context,
   selection,
   onSelectNode,
   onSelectEdge,
   onClearSelection,
 }: {
-  result: ReasoningResult;
+  result?: ReasoningResult;
+  graphBuilder?: (mode: GraphMode, selection: GraphSelection) => GraphModel;
+  context?: GraphNavigatorContext;
   selection: GraphSelection;
   onSelectNode: (nodeId: string) => void;
   onSelectEdge: (edgeId: string) => void;
@@ -141,12 +157,12 @@ export default function ThreatDefenseGraphNavigator({
 
   useEffect(() => {
     setStabilized(false);
-  }, [result, mode, classificationFilterKey, selectionFilterKey, viewKey]);
+  }, [result, graphBuilder, context, mode, classificationFilterKey, selectionFilterKey, viewKey]);
 
   // Re-frame the route once per data/mode/layout change so the graph fills the stage.
   useEffect(() => {
     autoFittedRef.current = false;
-  }, [result, mode, classificationFilterKey, viewKey]);
+  }, [result, graphBuilder, context, mode, classificationFilterKey, viewKey]);
 
   // react-force-graph sizes its canvas to the window by default; track the
   // stage container instead so the canvas always matches the visible frame.
@@ -163,7 +179,41 @@ export default function ThreatDefenseGraphNavigator({
     return () => observer.disconnect();
   }, []);
 
-  const graph = useMemo(() => buildGraphModel(result, mode, selection), [result, mode, selection]);
+  const graph = useMemo(() => {
+    if (graphBuilder) return graphBuilder(mode, selection);
+    if (result) return buildGraphModel(result, mode, selection);
+    return {
+      nodes: [],
+      links: [],
+      hiddenNodeCount: 0,
+      hiddenLinkCount: 0,
+      visibleNodeIds: new Set<string>(),
+      visibleLinkIds: new Set<string>(),
+      routeChain: [],
+      routeConfidence: 0,
+    };
+  }, [graphBuilder, result, mode, selection]);
+  const displayErrors = context?.errors ?? result?.errors ?? [];
+  const reviewRequired = context?.reviewRequired ?? result?.human_review.required ?? false;
+  const sourceMode = context?.sourceMode ?? result?.source_mode ?? "catalog-backed";
+  const inspectorEdges = useMemo(() =>
+    result?.edges ?? graph.links.map((link) => ({
+      id: link.id,
+      source: graphLinkSourceId(link),
+      target: graphLinkTargetId(link),
+      type: link.type,
+      classification: link.classification,
+      confidence: link.confidence,
+      evidence: link.evidence,
+      source_refs: link.sourceRefs,
+      source_url: link.sourceUrl,
+      note: link.note,
+      deterministic: link.deterministic,
+      inferred: link.inferred,
+      conditional: link.conditional,
+      weak_fit: link.weakFit,
+    })),
+  [graph.links, result?.edges]);
   const highlights = useMemo(() => buildHighlightState(graph, selection, mode), [graph, selection, mode]);
   const routeChainSet = useMemo(() => new Set(graph.routeChain), [graph.routeChain]);
 
@@ -257,10 +307,10 @@ export default function ThreatDefenseGraphNavigator({
   const offStageLinkCount = graph.hiddenLinkCount + Math.max(0, graph.links.length - renderedLinks.length);
   const stateNotices = useMemo(() => {
     const notices: { tone: "info" | "warning"; text: string }[] = [];
-    if (graph.nodes.length === 0 && result.errors.length > 0) {
-      notices.push({ tone: "warning", text: "Graph data is unavailable for this CVE. Review the API status and try Analyze again." });
+    if (graph.nodes.length === 0 && displayErrors.length > 0) {
+      notices.push({ tone: "warning", text: "Graph data is unavailable for this analysis. Review the API status and try Analyze again." });
     } else if (graph.nodes.length === 0) {
-      notices.push({ tone: "info", text: "No graphable route was produced for this CVE." });
+      notices.push({ tone: "info", text: context ? "No graphable route was produced for the active CVE projection." : "No graphable route was produced for this CVE." });
     } else if (graph.links.length === 0) {
       notices.push({ tone: "info", text: "No graphable relationships were produced yet. Evidence is still available in the drawer." });
     }
@@ -274,7 +324,7 @@ export default function ThreatDefenseGraphNavigator({
     }
 
     return notices.slice(0, 3);
-  }, [graph.links.length, graph.nodes, graph.routeChain, result.errors.length, selectedHidden, selection?.kind]);
+  }, [context, displayErrors.length, graph.links.length, graph.nodes, graph.routeChain, selectedHidden, selection?.kind]);
 
   const fitView = () => {
     fgRef.current?.zoomToFit?.(350, 60);
@@ -287,8 +337,9 @@ export default function ThreatDefenseGraphNavigator({
   };
 
   const resetSelection = () => {
-    onSelectNode(graph.routeChain[0] ?? result.normalized_input ?? result.input);
-    onSelectEdge("");
+    const rootId = graph.routeChain[0] ?? context?.rootId ?? result?.normalized_input ?? result?.input;
+    if (rootId) onSelectNode(rootId);
+    else onClearSelection();
     setMode("focused-route");
     setRouteEmphasis("all");
     setShowContext(true);
@@ -301,15 +352,15 @@ export default function ThreatDefenseGraphNavigator({
   const hasSelectionFocus = Boolean(selection);
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl">
+    <section id="threat-defense-graph" className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl">
       <div className="border-b border-slate-800/80 bg-slate-950/90 px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Threat-Defense Trace Graph Navigator</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{context?.eyebrow ?? "Threat-Defense Trace Graph Navigator"}</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-semibold text-slate-100">CVE → D3FEND trace</h2>
+              <h2 className="text-base font-semibold text-slate-100">{context?.title ?? "CVE → D3FEND trace"}</h2>
               <span className="rounded-full border border-sky-500/40 bg-sky-950/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-sky-300">
-                Trace Explorer
+                {context?.badge ?? "Trace Explorer"}
               </span>
             </div>
             {graph.routeChain.length > 0 ? (
@@ -324,7 +375,6 @@ export default function ThreatDefenseGraphNavigator({
                         aria-pressed={active}
                         onClick={() => {
                           onSelectNode(id);
-                          onSelectEdge("");
                         }}
                         className={`rounded border px-1.5 py-0.5 font-mono text-[11px] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-link ${
                           active
@@ -354,10 +404,11 @@ export default function ThreatDefenseGraphNavigator({
             {mitigationMode && (
               <span className="rounded-full border border-defense bg-green-50 px-2 py-1 font-semibold text-defense">Mitigation path</span>
             )}
-            <span className={`rounded-full border px-2 py-1 ${result.human_review.required ? "border-amber-400 bg-amber-50 text-amber-800" : "border-ok bg-green-50 text-ok"}`}>
-              {result.human_review.required ? "Human review required" : "Route validated"}
+            <span className={`rounded-full border px-2 py-1 ${reviewRequired ? "border-amber-400 bg-amber-50 text-amber-800" : "border-ok bg-green-50 text-ok"}`}>
+              {reviewRequired ? "Human review required" : context?.status ?? "Route validated"}
             </span>
-            <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{result.source_mode}</span>
+            <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{sourceMode}</span>
+            {context?.scopeLabel && <span className="rounded-full border border-violet-500/40 bg-violet-950/40 px-2 py-1 text-violet-200">{context.scopeLabel}</span>}
           </div>
         </div>
       </div>
@@ -493,6 +544,9 @@ export default function ThreatDefenseGraphNavigator({
                   typed.id,
                   typed.description,
                   `Route role: ${typed.routeRole}`,
+                  typed.cveIds.length > 0 ? `Related CVEs: ${typed.cveIds.join(", ")}` : null,
+                  typed.routeIds.length > 0 ? `Routes: ${typed.routeIds.length}` : null,
+                  typed.sharedCveCount > 1 ? `Shared by ${typed.sharedCveCount} CVEs` : null,
                   typed.evidence.length > 0 ? `Evidence: ${typed.evidence.join(" | ")}` : null,
                 ]
                   .filter(Boolean)
@@ -514,7 +568,6 @@ export default function ThreatDefenseGraphNavigator({
               }}
               onNodeClick={(node) => {
                 onSelectNode((node as GraphNodeData).id);
-                onSelectEdge("");
               }}
               onLinkClick={(link) => {
                 const typed = link as GraphLinkData;
@@ -566,6 +619,23 @@ export default function ThreatDefenseGraphNavigator({
                   ctx.strokeStyle = mitigation ? "#86efac" : `${COLORS.defense}AA`;
                   ctx.stroke();
                 }
+                if ((typed.kind === "attack" || typed.kind === "defend") && typed.sharedCveCount > 1) {
+                  const badgeRadius = Math.max(4.5, 6 / globalScale);
+                  const badgeX = x + radius * 0.78;
+                  const badgeY = y - radius * 0.78;
+                  ctx.beginPath();
+                  ctx.arc(badgeX, badgeY, badgeRadius, 0, Math.PI * 2);
+                  ctx.fillStyle = "#f8fafc";
+                  ctx.fill();
+                  ctx.lineWidth = Math.max(0.8, 1 / globalScale);
+                  ctx.strokeStyle = typed.kind === "attack" ? COLORS.offense : COLORS.defense;
+                  ctx.stroke();
+                  ctx.font = `700 ${Math.max(5.5, 7 / globalScale)}px ui-monospace, SFMono-Regular, monospace`;
+                  ctx.textAlign = "center";
+                  ctx.textBaseline = "middle";
+                  ctx.fillStyle = "#0f172a";
+                  ctx.fillText(String(typed.sharedCveCount), badgeX, badgeY + 0.2);
+                }
                 // Trace readability: label the spine and any focused nodes
                 // directly on the stage so the route reads without tooltips.
                 const zoomLabel = defensive ? false : globalScale > 1.6;
@@ -614,7 +684,7 @@ export default function ThreatDefenseGraphNavigator({
                 selection={selection}
                 nodes={renderedNodes}
                 links={renderedLinks}
-                resultEdges={result.edges}
+                resultEdges={inspectorEdges}
                 routeChain={graph.routeChain}
                 mitigationNodeIds={highlights.mitigationNodes}
                 mitigationLinkIds={highlights.mitigationLinks}

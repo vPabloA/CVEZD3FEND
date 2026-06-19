@@ -1,3 +1,5 @@
+import type { BundleEdge, BundleNode } from "./types";
+
 // Mirrors src/CVEzD3FEND/reasoning/models.py — stable contracts for the live
 // enrichment + reasoning plane (`/api/enrich`, `/api/reason`, `/api/provenance`,
 // `/api/evidence`). Field names are snake_case to match the JSON exactly.
@@ -144,4 +146,95 @@ export interface ReasoningResult {
   exports: ReasoningExports;
   warnings: string[];
   errors: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Contextual multi-CVE reasoning (`POST /api/reason/batch`)
+// ---------------------------------------------------------------------------
+
+export interface AnalysisContext {
+  technologies: string[];
+  exposure: string[];
+  priorities: string[];
+  audience: "SOC" | "Threat Hunting" | "Detection Engineering" | "CTEM" | "Executive";
+}
+
+export interface BatchAnalysisRequest {
+  cve_ids: string[];
+  context: AnalysisContext;
+  top_k: number;
+  include_all_candidates: boolean;
+  use_ai: boolean;
+}
+
+export type SelectionBasis = "coverage_floor" | "contextual_utility" | "top_k_constraint" | "ai_rerank";
+export type BatchSelectionMode = "deterministic" | "ai_reranked";
+
+export interface RankedRoute {
+  route_id: string;
+  cve_id: string;
+  cve_ids: string[];
+  node_ids: string[];
+  edge_ids: string[];
+  attack_ids: string[];
+  defend_ids: string[];
+  confidence: number;
+  completeness: number;
+  score: number;
+  selection_reasons: string[];
+  provenance: string[];
+  shared_cve_count: number;
+  defensive_reuse_count: number;
+  corroborated_nodes: string[];
+  gaps: string[];
+  selection_rank: number | null;
+  selection_basis: SelectionBasis | null;
+}
+
+export interface BatchSelectionSummary {
+  eligible_cves: number;
+  represented_cves: string[];
+  unrepresented_cves: string[];
+  representation_policy: string;
+  selection_mode: BatchSelectionMode;
+  fallback_used: boolean;
+}
+
+export interface GraphSlice {
+  nodes: BundleNode[];
+  edges: BundleEdge[];
+}
+
+export interface BatchNarrative {
+  executive_summary_es: string;
+  operational_summary_es: string;
+  technical_summary_es: string;
+}
+
+export interface BatchReasoningResult {
+  status: string;
+  requested_cves: string[];
+  found_cves: string[];
+  missing_cves: string[];
+  invalid_inputs: string[];
+  available_route_count: number;
+  selected_route_count: number;
+  candidate_routes: RankedRoute[];
+  selected_routes: RankedRoute[];
+  selected_graph: GraphSlice;
+  candidate_graph?: GraphSlice;
+  shared_attack_techniques_selected: string[];
+  shared_attack_techniques_all_candidates: string[];
+  shared_defenses_selected: string[];
+  shared_defenses_all_candidates: string[];
+  selection_summary: BatchSelectionSummary;
+  narrative: BatchNarrative;
+  provenance: Record<string, unknown>;
+  warnings: string[];
+  errors: string[];
+  /** Temporary backend compatibility aliases. New UI code uses selected_graph. */
+  nodes?: BundleNode[];
+  edges?: BundleEdge[];
+  shared_attack_techniques?: string[];
+  shared_defenses?: string[];
 }

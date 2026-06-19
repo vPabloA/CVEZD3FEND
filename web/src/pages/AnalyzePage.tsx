@@ -1,308 +1,179 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useMemo } from "react";
 import ErrorState from "@/components/ErrorState";
 import LoadingState from "@/components/LoadingState";
-import AdvancedEvidenceDrawer from "@/components/reasoning/AdvancedEvidenceDrawer";
-import AiReasoningActions from "@/components/reasoning/AiReasoningActions";
 import CveAnalyzeForm from "@/components/reasoning/CveAnalyzeForm";
-import EntityNavigationPanel from "@/components/reasoning/EntityNavigationPanel";
-import HumanReviewBanner from "@/components/reasoning/HumanReviewBanner";
-import ReasoningSkillsPanel from "@/components/reasoning/ReasoningSkillsPanel";
-import Tier1BriefingCard from "@/components/reasoning/Tier1BriefingCard";
+import BatchCandidateRouteList from "@/components/reasoning/batch/BatchCandidateRouteList";
+import BatchConvergencePanel from "@/components/reasoning/batch/BatchConvergencePanel";
+import BatchCveFilters from "@/components/reasoning/batch/BatchCveFilters";
+import BatchDecisionSummary from "@/components/reasoning/batch/BatchDecisionSummary";
+import BatchEvidencePanel from "@/components/reasoning/batch/BatchEvidencePanel";
+import BatchNarrativePanel from "@/components/reasoning/batch/BatchNarrativePanel";
+import BatchRouteRanking from "@/components/reasoning/batch/BatchRouteRanking";
 import ThreatDefenseGraphNavigator from "@/components/reasoning/graph/ThreatDefenseGraphNavigator";
-import RiskSummaryPanel from "@/components/reasoning/RiskSummaryPanel";
-import SourceModeBadge from "@/components/reasoning/SourceModeBadge";
-import { useApiAvailability, useReasoning } from "@/hooks/useReasoning";
-import { ApiError, promoteEdge } from "@/lib/api";
-import { RISK_LEVEL_LABELS, riskLevelClass, riskLevelFromScore } from "@/lib/colors";
+import { buildBatchGraphModel, projectGraphSliceByRoutes } from "@/components/reasoning/graph/graphAdapter";
+import { useApiAvailability, useBatchReasoning } from "@/hooks/useReasoning";
+import type { BatchAnalysisRequest, RankedRoute } from "@/lib/reasoningTypes";
 import { useQueryParam } from "@/lib/url";
-import type { ReasoningResult } from "@/lib/reasoningTypes";
 
-const REVIEWER_KEY = "cvezd3fend:reviewer";
-
-const ROUTE_SPINE = ["CVE", "CWE", "CAPEC", "ATT&CK", "D3FEND"];
-
-function num(value: unknown): number | undefined {
-  return typeof value === "number" ? value : undefined;
-}
-
-function baseScore(result: ReasoningResult): number | undefined {
-  const cvss = result.risk.cvss;
-  if (!cvss) return undefined;
-  return num(cvss.base_score) ?? num(cvss.baseScore) ?? num(cvss.score);
-}
-
-function kevListed(result: ReasoningResult): boolean {
-  const kev = result.risk.kev;
-  if (!kev) return false;
-  if (typeof kev.listed === "boolean") return kev.listed;
-  if (typeof kev.in_kev === "boolean") return kev.in_kev;
-  return Object.keys(kev).length > 0;
-}
-
-/** Live mission signals shown in the command bar once a CVE is staged. */
-function CommandSignals({ result }: { result: ReasoningResult }) {
-  const cveLabel = result.normalized_input || result.input;
-  const riskLevel = riskLevelFromScore(baseScore(result), kevListed(result));
-
+function WorkbenchIdle() {
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-      <h2 className="font-mono text-sm font-bold text-slate-100">{cveLabel}</h2>
-      <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-300">
-        {result.status}
-      </span>
-      <SourceModeBadge mode={result.source_mode} />
-      <span className={`rounded border px-1.5 py-0.5 text-[11px] font-semibold ${riskLevelClass(riskLevel)}`}>
-        Priority: {RISK_LEVEL_LABELS[riskLevel]}
-      </span>
-      {result.human_review.required && (
-        <span className="rounded border border-inferred bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-inferred">Requiere revisión</span>
-      )}
-      {result.input !== result.normalized_input && (
-        <span
-          className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[11px] text-slate-400"
-          title={`Input ${result.input} normalized to ${result.normalized_input}`}
-        >
-          normalized
-        </span>
-      )}
-      <Link to={`/node/${encodeURIComponent(cveLabel)}`} className="text-[11px] font-medium text-sky-400 hover:text-sky-300 hover:underline">
-        Open in knowledge bundle
-      </Link>
-    </div>
-  );
-}
-
-function ReasoningResultView({
-  result,
-  cveId,
-  reviewer,
-  apiAvailable,
-  busyEdgeId,
-  promoteMessage,
-  onPromote,
-  onReviewerChange,
-}: {
-  result: ReasoningResult;
-  cveId: string;
-  reviewer: string;
-  apiAvailable: boolean;
-  busyEdgeId: string | null;
-  promoteMessage: string | null;
-  onPromote: (edgeId: string) => void;
-  onReviewerChange: (value: string) => void;
-}) {
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
-  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
-  const riskLevel = riskLevelFromScore(baseScore(result), kevListed(result));
-
-  useEffect(() => {
-    setSelectedNode(null);
-    setSelectedEdge(null);
-  }, [result]);
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[15rem_minmax(0,1fr)_23rem]">
-        <EntityNavigationPanel
-          result={result}
-          selectedNode={selectedNode}
-          onSelectNode={(nodeId) => {
-            setSelectedNode(nodeId || null);
-            setSelectedEdge(null);
-          }}
-        />
-
-        <main className="min-w-0">
-          <ThreatDefenseGraphNavigator
-            result={result}
-            selection={selectedEdge ? { kind: "edge", id: selectedEdge } : selectedNode ? { kind: "node", id: selectedNode } : null}
-            onSelectNode={(nodeId) => {
-              setSelectedNode(nodeId);
-              setSelectedEdge(null);
-            }}
-            onSelectEdge={(edgeId) => {
-              setSelectedEdge(edgeId || null);
-            }}
-            onClearSelection={() => {
-              setSelectedNode(null);
-              setSelectedEdge(null);
-            }}
-          />
-        </main>
-
-        <aside className="flex min-w-0 flex-col gap-4 xl:sticky xl:top-24 xl:max-h-[calc(100vh-7rem)] xl:overflow-auto">
-          <Tier1BriefingCard
-            result={result}
-            riskLevel={riskLevel}
-            onFocusNode={(nodeId) => {
-              setSelectedNode(nodeId);
-              setSelectedEdge(null);
-            }}
-          />
-          <ReasoningSkillsPanel result={result} />
-          <HumanReviewBanner review={result.human_review} />
-          <RiskSummaryPanel risk={result.risk} />
-          <AiReasoningActions
-            cveId={cveId}
-            apiAvailable={apiAvailable}
-            reviewer={reviewer}
-            edges={result.edges}
-            busyEdgeId={busyEdgeId}
-            promoteMessage={promoteMessage}
-            onPromote={onPromote}
-            onReviewerChange={onReviewerChange}
-          />
-        </aside>
-      </div>
-
-      <AdvancedEvidenceDrawer result={result} cveId={cveId} />
-    </div>
-  );
-}
-
-/** Premium idle state for the graph stage: route spine preview, no fake data. */
-function WorkbenchEmptyState() {
-  return (
-    <section className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 px-6 py-16 text-center shadow-xl">
-      <div
-        className="pointer-events-none absolute inset-0 opacity-20 [background-image:linear-gradient(rgba(148,163,184,0.14)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.14)_1px,transparent_1px)] [background-size:28px_28px]"
-        aria-hidden="true"
-      />
-      <div className="relative flex flex-col items-center gap-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Graph stage idle</p>
-        <p className="text-base font-semibold text-slate-100">Enter a CVE ID to begin analysis</p>
-        <p className="max-w-xl text-sm text-slate-400">
-          The reasoning engine stages the full threat-defense route — operational priority, mitigation path, evidence signal and the
-          recommended Tier 1 action — on this canvas.
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-1.5" aria-hidden="true">
-          {ROUTE_SPINE.map((stage, index) => (
-            <span key={stage} className="flex items-center gap-1.5">
-              <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-medium text-slate-400">{stage}</span>
-              {index < ROUTE_SPINE.length - 1 && <span className="text-slate-600">→</span>}
-            </span>
-          ))}
-        </div>
-        <Link to="/" className="text-sm text-sky-400 hover:text-sky-300 hover:underline">
-          ← Back to search
-        </Link>
-      </div>
+    <section className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/70 p-10 text-center">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-400">Selected routes are the product</p>
+      <h2 className="mt-2 text-xl font-semibold text-slate-100">Analyze several CVEs in one operational context</h2>
+      <p className="mx-auto mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">CVEZD3FEND will perform exact Galeax lookup, traverse only catalog-demonstrated edges, score routes deterministically, optionally rerank a validated shortlist, and return a reduced graph with evidence.</p>
+      <p className="mt-4 font-mono text-sm text-slate-500">CVE → CWE → CAPEC → ATT&amp;CK → D3FEND</p>
     </section>
   );
 }
 
-/**
- * The Reasoning Workbench: graph-centered Single Pane of Glass for one CVE.
- * Four deliberate zones — command bar, graph stage, intelligence briefing,
- * evidence dock. Route, conclusion and Tier 1 action are first-class; full
- * provenance, exports and raw details stay behind progressive disclosure.
- */
 export default function AnalyzePage() {
-  const [cve, setCve] = useQueryParam("cve");
+  const [deepLinkedCve] = useQueryParam("cve");
   const api = useApiAvailability();
-  const reasoning = useReasoning(cve, api.available === true);
-  const [reviewer, setReviewer] = useState(() => localStorage.getItem(REVIEWER_KEY) ?? "");
-  const [busyEdgeId, setBusyEdgeId] = useState<string | null>(null);
-  const [promoteMessage, setPromoteMessage] = useState<string | null>(null);
+  const workbench = useBatchReasoning(api.available === true);
+  const selectedResult = workbench.selectedResult;
+  const activeResult = workbench.activeView === "all" && workbench.allResult ? workbench.allResult : selectedResult;
 
-  useEffect(() => {
-    localStorage.setItem(REVIEWER_KEY, reviewer);
-  }, [reviewer]);
+  const allCvesSelected = workbench.filteredCves.length === 0;
+  const activeRoutes = useMemo(() => {
+    if (!activeResult) return [];
+    const routes = workbench.activeView === "all" ? activeResult.candidate_routes : activeResult.selected_routes;
+    if (allCvesSelected) return routes;
+    return routes.filter((route) => workbench.filteredCves.includes(route.cve_id));
+  }, [activeResult, allCvesSelected, workbench.activeView, workbench.filteredCves]);
 
-  const handlePromote = (edgeId: string) => {
-    setBusyEdgeId(edgeId);
-    setPromoteMessage(null);
-    promoteEdge(edgeId, reviewer.trim())
-      .then(() => {
-        setPromoteMessage(`Promoted ${edgeId} to canonical.`);
-        reasoning.reload();
-      })
-      .catch((err: ApiError) => setPromoteMessage(`Failed to promote ${edgeId}: ${err.message}`))
-      .finally(() => setBusyEdgeId(null));
+  const activeSlice = useMemo(() => {
+    if (!activeResult) return null;
+    const slice = workbench.activeView === "all" ? activeResult.candidate_graph : activeResult.selected_graph;
+    if (!slice) return null;
+    return allCvesSelected ? slice : projectGraphSliceByRoutes(slice, activeRoutes);
+  }, [activeResult, activeRoutes, allCvesSelected, workbench.activeView]);
+
+  const focusedRoute = useMemo<RankedRoute | null>(() => {
+    if (!activeResult) return null;
+    return activeRoutes.find((route) => route.route_id === workbench.selectedRouteId) ?? activeRoutes[0] ?? null;
+  }, [activeResult, activeRoutes, workbench.selectedRouteId]);
+
+  const graphBuilder = useCallback(
+    (mode: Parameters<typeof buildBatchGraphModel>[2], selection: Parameters<typeof buildBatchGraphModel>[3]) =>
+      buildBatchGraphModel(activeSlice ?? { nodes: [], edges: [] }, activeRoutes, mode, selection, focusedRoute?.route_id),
+    [activeRoutes, activeSlice, focusedRoute?.route_id]
+  );
+
+  const graphContext = useMemo(() => ({
+    eyebrow: "Aggregated Threat-Defense Graph",
+    title: workbench.activeView === "all" ? "Complete candidate universe" : "Selected contextual routes",
+    badge: workbench.activeView === "all" ? "All candidates" : "Selected Top-K",
+    status: activeResult?.status === "partial" ? "Partial result" : "Catalog-backed",
+    sourceMode: "Galeax + catalogs",
+    reviewRequired: activeResult?.selection_summary.fallback_used ?? false,
+    errors: activeResult?.errors ?? [],
+    rootId: focusedRoute?.node_ids[0],
+    scopeLabel: activeResult
+      ? workbench.activeView === "all"
+        ? `Complete universe: ${activeResult.available_route_count} routes`
+        : `${activeResult.selected_route_count} selected of ${activeResult.available_route_count} available`
+      : undefined,
+  }), [activeResult, focusedRoute?.node_ids, workbench.activeView]);
+
+  const handleSubmit = (request: BatchAnalysisRequest) => {
+    void workbench.submit(request);
   };
 
-  return (
-    <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-4 px-4 py-5 lg:px-6">
-      {api.available === null && <LoadingState label="Checking API sidecar…" />}
+  const loadingSelected = workbench.phase === "validating" || workbench.phase === "loading-selected";
+  const loadingAll = workbench.phase === "loading-all";
+  const attackConvergence = activeResult
+    ? workbench.activeView === "all"
+      ? activeResult.shared_attack_techniques_all_candidates
+      : activeResult.shared_attack_techniques_selected
+    : [];
+  const defenseConvergence = activeResult
+    ? workbench.activeView === "all"
+      ? activeResult.shared_defenses_all_candidates
+      : activeResult.shared_defenses_selected
+    : [];
 
+  return (
+    <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-5 px-4 py-5 lg:px-6">
+      {api.available === null && <LoadingState label="Checking API sidecar…" />}
       {api.available === false && (
-        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 shadow-sm">
-          <p className="font-medium">API sidecar not reachable{api.error ? ` (${api.error})` : ""}.</p>
-          <p className="mt-1">The reasoning workbench requires the live API sidecar. From the project root:</p>
-          <pre className="mt-2 overflow-x-auto rounded bg-slate-900 p-2 text-xs text-slate-100">
-{`CVEzD3FEND api                           # start the sidecar (default http://127.0.0.1:8000)
-CVEzD3FEND reason <cve_id>               # CLI equivalent of this page
-CVEzD3FEND enrich <cve_id> --mode cached # offline/cached enrichment fallback`}
-          </pre>
-          <button
-            type="button"
-            onClick={api.recheck}
-            className="mt-3 rounded border border-amber-400 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-          >
-            Check again
-          </button>
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-950/20 p-4 text-sm text-amber-100" role="alert">
+          <p className="font-semibold">API sidecar not reachable{api.error ? `: ${api.error}` : "."}</p>
+          <p className="mt-1 text-amber-200">Start it with <code className="rounded bg-slate-950 px-1.5 py-0.5">CVEzD3FEND api</code>. No synthetic result or client-side mapping will be shown.</p>
+          <button type="button" onClick={api.recheck} className="mt-3 rounded-lg border border-amber-500/50 px-3 py-2 text-xs font-semibold hover:bg-amber-950/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300">Check again</button>
         </div>
       )}
 
       {api.available && (
         <>
-          {api.meta && !api.meta.reasoning_available && (
-            <div className="rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 shadow-sm">
-              The API sidecar is reachable, but the reasoning plane reports itself unavailable. Enrichment-only data may still work; reasoning
-              requests below may fail.
-            </div>
+          <CveAnalyzeForm initialValue={deepLinkedCve} busy={loadingSelected} onSubmit={handleSubmit} onClear={workbench.reset} />
+
+          {workbench.phase === "idle" && <WorkbenchIdle />}
+          {loadingSelected && <div aria-live="polite"><LoadingState label="Running exact lookup, deterministic scoring and Selected route projection…" /></div>}
+          {workbench.phase === "error" && workbench.error && <ErrorState message={workbench.error} />}
+
+          {selectedResult && activeResult && (
+            <>
+              <BatchDecisionSummary
+                result={selectedResult}
+                activeView={workbench.activeView}
+                allAvailable={Boolean(workbench.allResult)}
+                loadingAll={loadingAll}
+                onViewChange={workbench.setActiveView}
+              />
+
+              {workbench.allError && (
+                <div role="alert" className="rounded-xl border border-rose-500/40 bg-rose-950/30 p-3 text-sm text-rose-100">
+                  All candidates could not be loaded: {workbench.allError}. Selected remains available and unchanged.
+                </div>
+              )}
+              {loadingAll && <div aria-live="polite"><LoadingState label="Loading the complete candidate universe…" /></div>}
+
+              <div id="analysis-workbench" className="grid gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
+                <aside className="flex min-w-0 flex-col gap-3">
+                  <BatchCveFilters
+                    found={selectedResult.found_cves}
+                    represented={selectedResult.selection_summary.represented_cves}
+                    selected={workbench.filteredCves}
+                    onChange={workbench.setFilteredCves}
+                  />
+                  <BatchRouteRanking routes={selectedResult.selected_routes.filter((route) => allCvesSelected || workbench.filteredCves.includes(route.cve_id))} selectedRouteId={focusedRoute?.route_id ?? null} onSelect={(routeId) => { workbench.setSelectedRouteId(routeId); workbench.setGraphSelection(null); }} />
+                  {workbench.activeView === "all" && (
+                    <BatchCandidateRouteList routes={activeRoutes} onFocus={(routeId) => { workbench.setSelectedRouteId(routeId); workbench.setGraphSelection(null); }} />
+                  )}
+                  <BatchConvergencePanel title={workbench.activeView === "all" ? "ATT&CK convergence — All" : "ATT&CK convergence — Selected"} values={attackConvergence} routes={activeRoutes} kind="attack" />
+                  <BatchConvergencePanel title={workbench.activeView === "all" ? "D3FEND reuse — All" : "D3FEND reuse — Selected"} values={defenseConvergence} routes={activeRoutes} kind="defense" />
+                </aside>
+
+                <main className="min-w-0">
+                  {!activeSlice || activeRoutes.length === 0 ? (
+                    <section className="rounded-2xl border border-amber-500/40 bg-amber-950/20 p-8 text-center text-amber-100">
+                      <h2 className="text-lg font-semibold">No graphable routes in the active projection</h2>
+                      <p className="mt-2 text-sm text-amber-200">Review the CVE filter, missing identifiers, warnings and route gaps. The application does not fabricate graph nodes for missing or invalid CVEs.</p>
+                    </section>
+                  ) : (
+                    <>
+                      {workbench.activeView === "all" && activeSlice.nodes.length > 64 && (
+                        <div className="mb-3 rounded-xl border border-violet-500/40 bg-violet-950/30 p-3 text-sm text-violet-100">
+                          The complete universe contains {activeResult.available_route_count} routes and {activeSlice.nodes.length} nodes. The navigator uses progressive visual disclosure; the route list and backend evidence remain complete.
+                        </div>
+                      )}
+                      <ThreatDefenseGraphNavigator
+                        graphBuilder={graphBuilder}
+                        context={graphContext}
+                        selection={workbench.graphSelection}
+                        onSelectNode={(nodeId) => workbench.setGraphSelection({ kind: "node", id: nodeId })}
+                        onSelectEdge={(edgeId) => workbench.setGraphSelection(edgeId ? { kind: "edge", id: edgeId } : null)}
+                        onClearSelection={() => workbench.setGraphSelection(null)}
+                      />
+                    </>
+                  )}
+                </main>
+              </div>
+
+              <BatchNarrativePanel narrative={selectedResult.narrative} />
+              <BatchEvidencePanel result={activeResult} route={focusedRoute} graph={activeSlice} />
+            </>
           )}
-
-          <div className="sticky top-0 z-30 rounded-2xl border border-slate-800 bg-slate-950/95 px-4 py-3 shadow-xl backdrop-blur">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <div className="hidden shrink-0 md:block">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">Threat-Defense Workbench</p>
-                <h1 className="text-sm font-semibold text-slate-100">Single Pane of Glass</h1>
-              </div>
-              <div className="min-w-[14rem] max-w-xl flex-1">
-                <CveAnalyzeForm value={cve} busy={reasoning.loading} onSubmit={setCve} />
-              </div>
-              {cve.trim() && (
-                <button
-                  type="button"
-                  onClick={reasoning.reload}
-                  disabled={reasoning.loading}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-sky-400 hover:text-sky-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-link disabled:opacity-50"
-                >
-                  {reasoning.loading ? "Refreshing…" : "Refresh"}
-                </button>
-              )}
-              {reasoning.loading ? (
-                <span className="animate-pulse rounded-full border border-sky-500/40 bg-sky-950/40 px-2.5 py-1 text-[11px] font-medium text-sky-300">
-                  Reasoning…
-                </span>
-              ) : reasoning.result ? (
-                <CommandSignals result={reasoning.result} />
-              ) : (
-                <span className="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] font-medium text-slate-400">Ready</span>
-              )}
-            </div>
-          </div>
-
-          {!cve.trim() ? (
-            <WorkbenchEmptyState />
-          ) : reasoning.loading ? (
-            <LoadingState label={`Running reasoning engine for ${cve}…`} />
-          ) : reasoning.error ? (
-            <ErrorState message={reasoning.error} onRetry={reasoning.reload} />
-          ) : reasoning.result ? (
-            <ReasoningResultView
-              result={reasoning.result}
-              cveId={cve.trim()}
-              reviewer={reviewer}
-              apiAvailable={Boolean(api.available)}
-              busyEdgeId={busyEdgeId}
-              promoteMessage={promoteMessage}
-              onPromote={handlePromote}
-              onReviewerChange={setReviewer}
-            />
-          ) : null}
         </>
       )}
     </div>
