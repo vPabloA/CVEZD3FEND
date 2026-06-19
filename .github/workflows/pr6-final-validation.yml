@@ -1,9 +1,9 @@
 name: PR6 final validation
 
 on:
-  push:
+  pull_request:
     branches:
-      - audit/pr6-final-validation
+      - audit/pr6-final-base
 
 permissions:
   contents: read
@@ -12,7 +12,7 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout validation branch
+      - name: Checkout validation merge
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -56,6 +56,4 @@ jobs:
         run: npm run build
 
       - name: Validate source diff
-        run: |
-          git fetch origin main
-          git diff --check origin/main...HEAD
+        run: git diff --check HEAD^1...HEAD
