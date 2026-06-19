@@ -12,8 +12,26 @@ import BatchRouteRanking from "@/components/reasoning/batch/BatchRouteRanking";
 import ThreatDefenseGraphNavigator from "@/components/reasoning/graph/ThreatDefenseGraphNavigator";
 import { buildBatchGraphModel, projectGraphSliceByRoutes } from "@/components/reasoning/graph/graphAdapter";
 import { useApiAvailability, useBatchReasoning } from "@/hooks/useReasoning";
-import type { BatchAnalysisRequest, RankedRoute } from "@/lib/reasoningTypes";
+import type { BatchAnalysisRequest, GraphSlice, RankedRoute } from "@/lib/reasoningTypes";
 import { useQueryParam } from "@/lib/url";
+
+function routeRequiresHumanReview(route: RankedRoute | null, slice: GraphSlice | null): boolean {
+  if (!route || !slice) return false;
+  if (route.completeness < 1 || route.gaps.length > 0) return true;
+  const routeNodeIds = new Set(route.node_ids);
+  const routeEdgeIds = new Set(route.edge_ids);
+  const nodeReview = slice.nodes.some((node) => routeNodeIds.has(node.id) && (node.inferred || node.type === "gap"));
+  const edgeReview = slice.edges.some((edge) => {
+    if (!routeEdgeIds.has(edge.id)) return false;
+    const resolution = typeof edge.resolution_state === "string"
+      ? edge.resolution_state
+      : typeof edge.metadata?.resolution_state === "string"
+        ? edge.metadata.resolution_state
+        : undefined;
+    return edge.inferred || resolution === "unresolved" || resolution === "invalid";
+  });
+  return nodeReview || edgeReview;
+}
 
 function WorkbenchIdle() {
   return (
@@ -53,6 +71,8 @@ export default function AnalyzePage() {
     return activeRoutes.find((route) => route.route_id === workbench.selectedRouteId) ?? activeRoutes[0] ?? null;
   }, [activeResult, activeRoutes, workbench.selectedRouteId]);
 
+  const focusedRouteReviewRequired = useMemo(() => routeRequiresHumanReview(focusedRoute, activeSlice), [activeSlice, focusedRoute]);
+
   const graphBuilder = useCallback(
     (mode: Parameters<typeof buildBatchGraphModel>[2], selection: Parameters<typeof buildBatchGraphModel>[3]) =>
       buildBatchGraphModel(activeSlice ?? { nodes: [], edges: [] }, activeRoutes, mode, selection, focusedRoute?.route_id),
@@ -63,9 +83,11 @@ export default function AnalyzePage() {
     eyebrow: "Aggregated Threat-Defense Graph",
     title: workbench.activeView === "all" ? "Complete candidate universe" : "Selected contextual routes",
     badge: workbench.activeView === "all" ? "All candidates" : "Selected Top-K",
-    status: activeResult?.status === "partial" ? "Partial result" : "Catalog-backed",
+    status: "Catalog-backed",
     sourceMode: "Galeax + catalogs",
-    reviewRequired: activeResult?.selection_summary.fallback_used ?? false,
+    reviewRequired: focusedRouteReviewRequired,
+    fallbackUsed: activeResult?.selection_summary.fallback_used ?? false,
+    selectionMode: activeResult?.selection_summary.selection_mode,
     errors: activeResult?.errors ?? [],
     rootId: focusedRoute?.node_ids[0],
     scopeLabel: activeResult
@@ -73,7 +95,7 @@ export default function AnalyzePage() {
         ? `Complete universe: ${activeResult.available_route_count} routes`
         : `${activeResult.selected_route_count} selected of ${activeResult.available_route_count} available`
       : undefined,
-  }), [activeResult, focusedRoute?.node_ids, workbench.activeView]);
+  }), [activeResult, focusedRoute?.node_ids, focusedRouteReviewRequired, workbench.activeView]);
 
   const handleSubmit = (request: BatchAnalysisRequest) => {
     void workbench.submit(request);
@@ -96,9 +118,9 @@ export default function AnalyzePage() {
     <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-5 px-4 py-5 lg:px-6">
       {api.available === null && <LoadingState label="Checking API sidecar…" />}
       {api.available === false && (
-        <div className="rounded-2xl border border-amber-500/40 bg-amber-950/20 p-4 text-sm text-amber-100" role="alert">
+        <div className="rounded-2xl border border-amber-500/70 bg-amber-950 p-4 text-sm text-amber-50" role="alert">
           <p className="font-semibold">API sidecar not reachable{api.error ? `: ${api.error}` : "."}</p>
-          <p className="mt-1 text-amber-200">Start it with <code className="rounded bg-slate-950 px-1.5 py-0.5">CVEzD3FEND api</code>. No synthetic result or client-side mapping will be shown.</p>
+          <p className="mt-1 text-amber-100">Start it with <code className="rounded bg-slate-950 px-1.5 py-0.5">CVEzD3FEND api</code>. No synthetic result or client-side mapping will be shown.</p>
           <button type="button" onClick={api.recheck} className="mt-3 rounded-lg border border-amber-500/50 px-3 py-2 text-xs font-semibold hover:bg-amber-950/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300">Check again</button>
         </div>
       )}
@@ -122,7 +144,7 @@ export default function AnalyzePage() {
               />
 
               {workbench.allError && (
-                <div role="alert" className="rounded-xl border border-rose-500/40 bg-rose-950/30 p-3 text-sm text-rose-100">
+                <div role="alert" className="rounded-xl border border-rose-500/70 bg-rose-950 p-3 text-sm text-rose-50">
                   All candidates could not be loaded: {workbench.allError}. Selected remains available and unchanged.
                 </div>
               )}
@@ -146,14 +168,14 @@ export default function AnalyzePage() {
 
                 <main className="min-w-0">
                   {!activeSlice || activeRoutes.length === 0 ? (
-                    <section className="rounded-2xl border border-amber-500/40 bg-amber-950/20 p-8 text-center text-amber-100">
+                    <section className="rounded-2xl border border-amber-500/70 bg-amber-950 p-8 text-center text-amber-50">
                       <h2 className="text-lg font-semibold">No graphable routes in the active projection</h2>
-                      <p className="mt-2 text-sm text-amber-200">Review the CVE filter, missing identifiers, warnings and route gaps. The application does not fabricate graph nodes for missing or invalid CVEs.</p>
+                      <p className="mt-2 text-sm text-amber-100">Review the CVE filter, missing identifiers, warnings and route gaps. The application does not fabricate graph nodes for missing or invalid CVEs.</p>
                     </section>
                   ) : (
                     <>
                       {workbench.activeView === "all" && activeSlice.nodes.length > 64 && (
-                        <div className="mb-3 rounded-xl border border-violet-500/40 bg-violet-950/30 p-3 text-sm text-violet-100">
+                        <div className="mb-3 rounded-xl border border-violet-500/70 bg-violet-950 p-3 text-sm text-violet-50">
                           The complete universe contains {activeResult.available_route_count} routes and {activeSlice.nodes.length} nodes. The navigator uses progressive visual disclosure; the route list and backend evidence remain complete.
                         </div>
                       )}

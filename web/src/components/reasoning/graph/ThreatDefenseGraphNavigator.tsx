@@ -100,12 +100,6 @@ function nodeRadius(node: GraphNodeData): number {
   return 6;
 }
 
-function hasFullRoute(chain: string[], nodes: GraphNodeData[]): boolean {
-  if (chain.length < 5) return false;
-  const routeKinds = new Set(nodes.filter((node) => chain.includes(node.id)).map((node) => node.kind));
-  return ["cve", "cwe", "capec", "attack", "defend"].every((kind) => routeKinds.has(kind as GraphNodeData["kind"]));
-}
-
 function isSecondaryEmphasisLink(link: GraphLinkData): boolean {
   return link.conditional || link.weakFit || link.classification === "conditional" || link.classification === "weak_fit" || link.classification === "unverified";
 }
@@ -117,6 +111,8 @@ export interface GraphNavigatorContext {
   status?: string;
   sourceMode?: string;
   reviewRequired?: boolean;
+  fallbackUsed?: boolean;
+  selectionMode?: string;
   errors?: string[];
   rootId?: string;
   scopeLabel?: string;
@@ -191,6 +187,8 @@ export default function ThreatDefenseGraphNavigator({
       visibleLinkIds: new Set<string>(),
       routeChain: [],
       routeConfidence: 0,
+      focusedRouteComplete: false,
+      focusedRouteGaps: ["No focused route"],
     };
   }, [graphBuilder, result, mode, selection]);
   const displayErrors = context?.errors ?? result?.errors ?? [];
@@ -315,8 +313,9 @@ export default function ThreatDefenseGraphNavigator({
       notices.push({ tone: "info", text: "No graphable relationships were produced yet. Evidence is still available in the drawer." });
     }
 
-    if (graph.nodes.length > 0 && !hasFullRoute(graph.routeChain, graph.nodes)) {
-      notices.push({ tone: "info", text: "This route is partial. Defensive intent is available, but no canonical CWE/CAPEC chain was found." });
+    if (graph.nodes.length > 0 && !graph.focusedRouteComplete) {
+      const gapSummary = graph.focusedRouteGaps.slice(0, 2).join("; ");
+      notices.push({ tone: "info", text: `This route is partial${gapSummary ? `: ${gapSummary}` : ""}.` });
     }
 
     if (selectedHidden) {
@@ -324,7 +323,7 @@ export default function ThreatDefenseGraphNavigator({
     }
 
     return notices.slice(0, 3);
-  }, [context, displayErrors.length, graph.links.length, graph.nodes, graph.routeChain, selectedHidden, selection?.kind]);
+  }, [context, displayErrors.length, graph.focusedRouteComplete, graph.focusedRouteGaps, graph.links.length, graph.nodes.length, selectedHidden, selection?.kind]);
 
   const fitView = () => {
     fgRef.current?.zoomToFit?.(350, 60);
@@ -404,9 +403,15 @@ export default function ThreatDefenseGraphNavigator({
             {mitigationMode && (
               <span className="rounded-full border border-defense bg-green-50 px-2 py-1 font-semibold text-defense">Mitigation path</span>
             )}
-            <span className={`rounded-full border px-2 py-1 ${reviewRequired ? "border-amber-400 bg-amber-50 text-amber-800" : "border-ok bg-green-50 text-ok"}`}>
+            <span className={`rounded-full border px-2 py-1 ${reviewRequired ? "border-amber-400 bg-amber-950 text-amber-50" : "border-emerald-500/50 bg-emerald-950 text-emerald-100"}`}>
               {reviewRequired ? "Human review required" : context?.status ?? "Route validated"}
             </span>
+            {context?.fallbackUsed && (
+              <span title="AI unavailable or rejected; deterministic ranking remains authoritative." className="rounded-full border border-amber-500/60 bg-amber-950 px-2 py-1 text-amber-50">Deterministic fallback</span>
+            )}
+            {!context?.fallbackUsed && context?.selectionMode === "ai_reranked" && (
+              <span className="rounded-full border border-violet-500/60 bg-violet-950 px-2 py-1 text-violet-50">AI reranked</span>
+            )}
             <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{sourceMode}</span>
             {context?.scopeLabel && <span className="rounded-full border border-violet-500/40 bg-violet-950/40 px-2 py-1 text-violet-200">{context.scopeLabel}</span>}
           </div>
@@ -421,8 +426,8 @@ export default function ThreatDefenseGraphNavigator({
                 key={notice.text}
                 className={`rounded-xl border px-3 py-2 text-sm ${
                   notice.tone === "warning"
-                    ? "border-amber-400/50 bg-amber-950/30 text-amber-100"
-                    : "border-sky-500/30 bg-sky-950/30 text-sky-100"
+                    ? "border-amber-400/70 bg-amber-950 text-amber-50"
+                    : "border-sky-500/50 bg-sky-950 text-sky-50"
                 }`}
               >
                 {notice.text}

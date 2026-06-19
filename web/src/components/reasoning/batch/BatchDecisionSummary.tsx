@@ -3,10 +3,10 @@ import type { BatchView } from "@/hooks/useReasoning";
 
 function Metric({ label, value, detail }: { label: string; value: number | string; detail?: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
+    <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">{label}</p>
       <p className="mt-1 text-xl font-semibold text-slate-100">{value}</p>
-      {detail && <p className="mt-1 text-xs text-slate-500">{detail}</p>}
+      {detail && <p className="mt-1 text-xs text-slate-300">{detail}</p>}
     </div>
   );
 }
@@ -29,21 +29,21 @@ export default function BatchDecisionSummary({
   const statusPresentation = result.status === "ok"
     ? { title: "Contextual route selection ready", className: "border-slate-800 bg-slate-950" }
     : result.status === "partial"
-      ? { title: "Partial analysis — usable results with declared gaps", className: "border-amber-500/40 bg-amber-950/20" }
+      ? { title: "Partial analysis — usable results with declared gaps", className: "border-amber-500/70 bg-amber-950" }
       : result.status === "unavailable"
-        ? { title: "Galeax data unavailable — no complete analysis was asserted", className: "border-rose-500/40 bg-rose-950/20" }
+        ? { title: "Galeax data unavailable — no complete analysis was asserted", className: "border-rose-500/70 bg-rose-950" }
         : result.status === "not_found"
-          ? { title: "No requested CVE was found", className: "border-amber-500/40 bg-amber-950/20" }
+          ? { title: "No requested CVE was found", className: "border-amber-500/70 bg-amber-950" }
           : result.status === "invalid"
-            ? { title: "No valid CVE identifier was supplied", className: "border-rose-500/40 bg-rose-950/20" }
-            : { title: `Analysis status: ${result.status}`, className: "border-amber-500/40 bg-amber-950/20" };
+            ? { title: "No valid CVE identifier was supplied", className: "border-rose-500/70 bg-rose-950" }
+            : { title: `Analysis status: ${result.status}`, className: "border-amber-500/70 bg-amber-950" };
   return (
     <section id="decision-summary" aria-labelledby="decision-summary-title" role="status" aria-live="polite" className={`rounded-2xl border p-4 shadow-lg ${statusPresentation.className}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-400">Decision summary</p>
           <h2 id="decision-summary-title" className="mt-1 text-lg font-semibold text-slate-100">{statusPresentation.title}</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-sm text-slate-300">
             {activeView === "all"
               ? `Showing complete universe: ${result.available_route_count} routes.`
               : `Showing ${result.selected_route_count} selected route${result.selected_route_count === 1 ? "" : "s"} from ${result.available_route_count} available.`}
@@ -74,9 +74,9 @@ export default function BatchDecisionSummary({
 
       {(result.missing_cves.length > 0 || result.invalid_inputs.length > 0 || result.selection_summary.unrepresented_cves.length > 0) && (
         <div className="mt-4 grid gap-2 text-sm md:grid-cols-3" aria-live="polite">
-          {result.missing_cves.length > 0 && <div className="rounded-lg border border-amber-500/40 bg-amber-950/30 p-3 text-amber-100"><strong>Not found:</strong> {result.missing_cves.join(", ")}</div>}
-          {result.invalid_inputs.length > 0 && <div className="rounded-lg border border-rose-500/40 bg-rose-950/30 p-3 text-rose-100"><strong>Invalid:</strong> {result.invalid_inputs.join(", ")}</div>}
-          {result.selection_summary.unrepresented_cves.length > 0 && <div className="rounded-lg border border-violet-500/40 bg-violet-950/30 p-3 text-violet-100"><strong>Outside Top-K:</strong> {result.selection_summary.unrepresented_cves.join(", ")}</div>}
+          {result.missing_cves.length > 0 && <div className="rounded-lg border border-amber-500/70 bg-amber-950 p-3 text-amber-50"><strong>Not found:</strong> {result.missing_cves.join(", ")}</div>}
+          {result.invalid_inputs.length > 0 && <div className="rounded-lg border border-rose-500/70 bg-rose-950 p-3 text-rose-50"><strong>Invalid:</strong> {result.invalid_inputs.join(", ")}</div>}
+          {result.selection_summary.unrepresented_cves.length > 0 && <div className="rounded-lg border border-violet-500/70 bg-violet-950 p-3 text-violet-50"><strong>Outside Top-K:</strong> {result.selection_summary.unrepresented_cves.join(", ")}</div>}
         </div>
       )}
     </section>

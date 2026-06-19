@@ -63,6 +63,7 @@ describe("AnalyzePage multi-CVE workbench", () => {
     renderAnalyze();
     expect(await screen.findByText(/API sidecar not reachable/i)).toBeInTheDocument();
     expect(screen.getByText(/No synthetic result or client-side mapping/i)).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveClass("bg-amber-950", "text-amber-50");
     expect(api.reasonCves).not.toHaveBeenCalled();
   });
 
@@ -112,6 +113,10 @@ describe("AnalyzePage multi-CVE workbench", () => {
     expect(screen.getByText("#2")).toBeInTheDocument();
     expect(screen.getAllByText(/CVE-2025-99999999/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/INVALID/).length).toBeGreaterThan(0);
+    const summary = screen.getByRole("status");
+    expect(summary).toHaveClass("bg-amber-950");
+    expect(within(summary).getByText(/Not found:/i).closest("div")).toHaveClass("text-amber-50");
+    expect(within(summary).getByText(/Invalid:/i).closest("div")).toHaveClass("text-rose-50");
   });
 
   it("loads All only after opt-in and consumes candidate_graph", async () => {
@@ -150,7 +155,9 @@ describe("AnalyzePage multi-CVE workbench", () => {
       .mockRejectedValueOnce(new api.ApiError("candidate graph unavailable"));
     await submitDefault(user);
     await user.click(await screen.findByRole("tab", { name: /Load all candidates/i }));
-    expect(await screen.findByText(/candidate graph unavailable/i)).toBeInTheDocument();
+    const allError = await screen.findByRole("alert");
+    expect(allError).toHaveTextContent(/candidate graph unavailable/i);
+    expect(allError).toHaveClass("bg-rose-950", "text-rose-50");
     expect(screen.getByText("Selected contextual routes")).toBeInTheDocument();
     expect(screen.getByText("#1")).toBeInTheDocument();
   });
@@ -202,12 +209,15 @@ describe("AnalyzePage multi-CVE workbench", () => {
     expect(screen.getAllByText("cve2capec:cve_2025").length).toBeGreaterThan(0);
   });
 
-  it("shows deterministic fallback explicitly", async () => {
+  it("separates deterministic fallback from human review", async () => {
     const user = await healthyPage();
     vi.mocked(api.reasonCves).mockResolvedValue(makeBatchReasoningResult({ selection_summary: { ...makeBatchReasoningResult().selection_summary, fallback_used: true } }));
     await submitDefault(user);
-    const summary = await screen.findByRole("status");
-    expect(within(summary).getByText("Used")).toBeInTheDocument();
+    expect(await screen.findByText("Deterministic fallback")).toBeInTheDocument();
+    expect(screen.getByText("Catalog-backed")).toBeInTheDocument();
+    expect(screen.queryByText("Human review required")).not.toBeInTheDocument();
+    expect(screen.getByText("#1")).toBeInTheDocument();
+    expect(screen.getByText(/Se analizaron dos CVE/i)).toBeInTheDocument();
   });
 
   it("shows a zero-route explanation instead of an empty unexplained graph", async () => {
@@ -232,4 +242,61 @@ describe("AnalyzePage multi-CVE workbench", () => {
     await submitDefault(user);
     expect(await screen.findByText("maximum is 50")).toBeInTheDocument();
   });
+
+  it("keeps a complete five-layer focused route truthful above the visual cap", async () => {
+    const user = await healthyPage();
+    const selectedResult = makeBatchReasoningResult();
+    const allResult = makeBatchReasoningResult({}, true);
+    const graph = allResult.candidate_graph!;
+    const extraNodes = Array.from({ length: 70 }, (_, index) => ({
+      ...graph.nodes[0], id: `EVID-${index}`, type: "evidence" as const, name: `Evidence ${index}`, title: `Evidence ${index}`,
+    }));
+    const extraEdges = extraNodes.map((node, index) => ({
+      ...graph.edges[0], id: `E-CONTEXT-${index}`, source: "CVE-2025-0168", target: node.id, type: "has_evidence",
+    }));
+    allResult.candidate_graph = { nodes: [...graph.nodes, ...extraNodes], edges: [...graph.edges, ...extraEdges] };
+    allResult.available_route_count = 73;
+    vi.mocked(api.reasonCves).mockResolvedValueOnce(selectedResult).mockResolvedValueOnce(allResult);
+
+    await submitDefault(user);
+    await user.click(await screen.findByRole("tab", { name: /Load all candidates/i }));
+    const density = await screen.findByText(/complete universe contains 73 routes and 79 nodes/i);
+    expect(density).toHaveClass("bg-violet-950", "text-violet-50");
+    expect(density).toHaveTextContent(/progressive visual disclosure/i);
+    expect(density).toHaveTextContent(/route list and backend evidence remain complete/i);
+    expect(screen.queryByText(/This route is partial/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Trace step 1: CVE-2025-0168/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Trace step 5: D3-LFP/i })).toBeInTheDocument();
+  });
+
+
+  it("shows human review only for a real route gap, independently of fallback", async () => {
+    const user = await healthyPage();
+    const base = makeBatchReasoningResult();
+    const incomplete = { ...base.selected_routes[0], completeness: 0.8, gaps: ["Missing D3FEND layer"] };
+    vi.mocked(api.reasonCves).mockResolvedValue({
+      ...base,
+      selected_routes: [incomplete, base.selected_routes[1]],
+      selection_summary: { ...base.selection_summary, fallback_used: true },
+    });
+    await submitDefault(user);
+    expect(await screen.findByText("Human review required")).toBeInTheDocument();
+    expect(screen.getByText("Deterministic fallback")).toBeInTheDocument();
+    expect(screen.getByText(/This route is partial: Missing D3FEND layer/i)).toBeInTheDocument();
+  });
+
+
+  it("shows AI reranked without fallback or human-review semantics", async () => {
+    const user = await healthyPage();
+    const base = makeBatchReasoningResult();
+    vi.mocked(api.reasonCves).mockResolvedValue({
+      ...base,
+      selection_summary: { ...base.selection_summary, selection_mode: "ai_reranked", fallback_used: false },
+    });
+    await submitDefault(user);
+    expect((await screen.findAllByText("AI reranked")).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Deterministic fallback")).not.toBeInTheDocument();
+    expect(screen.queryByText("Human review required")).not.toBeInTheDocument();
+  });
+
 });

@@ -64,4 +64,52 @@ describe("batch graph projection", () => {
     const model = buildBatchGraphModel(unsafe, selected, "full-traceability", null, selected[0].route_id);
     expect(model.links.find((link) => link.id === "E-CVE1-CWE")?.sourceUrl).toBeNull();
   });
+
+  it("preserves the complete focused route while capping surrounding context", () => {
+    const extraNodes = Array.from({ length: 40 }, (_, index) => ({
+      ...candidateGraph.nodes[0], id: `EVID-${index}`, type: "evidence" as const, name: `Evidence ${index}`, title: `Evidence ${index}`,
+    }));
+    const extraEdges = extraNodes.map((node, index) => ({
+      ...candidateGraph.edges[0], id: `E-CONTEXT-${index}`, source: "CVE-2025-0168", target: node.id, type: "has_evidence",
+    }));
+    const denseGraph = { nodes: [...candidateGraph.nodes, ...extraNodes], edges: [...candidateGraph.edges, ...extraEdges] };
+    const focused = selected[0];
+    const model = buildBatchGraphModel(denseGraph, candidates, "focused-route", null, focused.route_id);
+    expect(model.hiddenNodeCount).toBeGreaterThan(0);
+    expect(focused.node_ids.every((id) => model.visibleNodeIds.has(id))).toBe(true);
+    expect(focused.edge_ids.every((id) => model.visibleLinkIds.has(id))).toBe(true);
+    expect(model.focusedRouteComplete).toBe(true);
+    expect(model.focusedRouteGaps).toEqual([]);
+  });
+
+  it("keeps a selected node and selected edge visible beyond the context cap", () => {
+    const extraNodes = Array.from({ length: 40 }, (_, index) => ({ ...candidateGraph.nodes[0], id: `EVID-${index}`, type: "evidence" as const }));
+    const extraEdges = extraNodes.map((node, index) => ({ ...candidateGraph.edges[0], id: `E-CONTEXT-${index}`, source: "CVE-2025-0168", target: node.id }));
+    const denseGraph = { nodes: [...candidateGraph.nodes, ...extraNodes], edges: [...candidateGraph.edges, ...extraEdges] };
+    const nodeModel = buildBatchGraphModel(denseGraph, candidates, "focused-route", { kind: "node", id: "EVID-39" }, selected[0].route_id);
+    const edgeModel = buildBatchGraphModel(denseGraph, candidates, "focused-route", { kind: "edge", id: "E-CONTEXT-39" }, selected[0].route_id);
+    expect(nodeModel.visibleNodeIds.has("EVID-39")).toBe(true);
+    expect(edgeModel.visibleNodeIds.has("EVID-39")).toBe(true);
+    expect(edgeModel.visibleLinkIds.has("E-CONTEXT-39")).toBe(true);
+  });
+
+
+  it("recalculates focused-route truth when focus changes", () => {
+    const first = buildBatchGraphModel(candidateGraph, candidates, "focused-route", null, selected[0].route_id);
+    const third = buildBatchGraphModel(candidateGraph, candidates, "focused-route", null, "ROUTE-CVE2-FA");
+    expect(first.routeChain.at(-1)).toBe("D3-LFP");
+    expect(third.routeChain.at(-1)).toBe("D3-FA");
+    expect(third.focusedRouteComplete).toBe(true);
+  });
+
+  it("declares a genuinely missing backend edge as a route gap", () => {
+    const incompleteGraph = {
+      nodes: selectedGraph.nodes,
+      edges: selectedGraph.edges.filter((edge) => edge.id !== "E-ATTACK-DEFEND"),
+    };
+    const model = buildBatchGraphModel(incompleteGraph, selected, "focused-route", null, selected[0].route_id);
+    expect(model.focusedRouteComplete).toBe(false);
+    expect(model.focusedRouteGaps).toContain("Missing edge E-ATTACK-DEFEND");
+  });
+
 });

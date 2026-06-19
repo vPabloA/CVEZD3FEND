@@ -78,6 +78,8 @@ export interface GraphModel {
   visibleLinkIds: Set<string>;
   routeChain: string[];
   routeConfidence: number;
+  focusedRouteComplete: boolean;
+  focusedRouteGaps: string[];
 }
 
 export interface NodeViewModel {
