@@ -1,0 +1,152 @@
+name: Final product closure PR validation
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      PRODUCT_BRANCH: feat/multi-cve-contextual-analysis
+      EXPECTED_HEAD: 3857b2adb0d5cb18b7d1260397c31fbd87259d36
+      VALIDATED_BRANCH: audit/final-closure-validated-v1
+    steps:
+      - name: Checkout audit scripts
+        uses: actions/checkout@v4
+        with:
+          ref: audit/iteration2-preflight-20260618
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Prepare exact product tree and transforms
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp audit/final-closure/*.py /tmp/
+          cp audit/iteration2_demo.py /tmp/iteration2_demo.py
+          git fetch origin "$PRODUCT_BRANCH"
+          test "$(git rev-parse origin/$PRODUCT_BRANCH)" = "$EXPECTED_HEAD"
+          git checkout -B final-product-correction "$EXPECTED_HEAD"
+          test -z "$(git status --short)"
+          for script in source_01 source_02 source_03 tests_01a tests_01b tests_02a tests_02b tests_02c_review tests_02c_ai; do python "/tmp/$script.py"; done
+          git diff --check
+          mkdir -p /tmp/final-evidence
+          git diff --stat > /tmp/final-evidence/final-correction-diff-stat.txt
+          git diff --name-only | sort > /tmp/final-evidence/final-correction-files.txt
+
+      - name: Restore generated bundle
+        shell: bash
+        run: |
+          mkdir -p data/dist
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/knowledge-bundle.json > data/dist/knowledge-bundle.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/promoted-edges.json > data/dist/promoted-edges.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/quality-report.json > data/dist/quality-report.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install backend and capture tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,api]'
+          python -m pip install selenium
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install frontend
+        working-directory: web
+        run: npm ci
+
+      - name: Full validation
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m compileall src tests 2>&1 | tee /tmp/final-evidence/final-compileall.txt
+          pytest -q 2>&1 | tee /tmp/final-evidence/final-pytest.txt
+          (cd web && npm run lint) 2>&1 | tee /tmp/final-evidence/final-frontend-lint.txt
+          (cd web && npm run test) 2>&1 | tee /tmp/final-evidence/final-frontend-test.txt
+          (cd web && npm run build) 2>&1 | tee /tmp/final-evidence/final-frontend-build.txt
+          git diff --check
+
+      - name: Trust boundary and real demonstration
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -R "dangerouslySetInnerHTML" web/src
+          ! grep -R "javascript:" web/src
+          ! grep -R -E "(OPENAI_API_KEY|ANTHROPIC_API_KEY|sk-[A-Za-z0-9])" web/src
+          grep -n "focusedEdgeIds" web/src/components/reasoning/graph/graphAdapter.ts > /tmp/final-evidence/final-trust-checks.txt
+          grep -n "focusedRouteComplete" web/src/components/reasoning/graph/ThreatDefenseGraphNavigator.tsx >> /tmp/final-evidence/final-trust-checks.txt
+          grep -n "fallbackUsed" web/src/pages/AnalyzePage.tsx >> /tmp/final-evidence/final-trust-checks.txt
+          grep -n "reviewRequired: focusedRouteReviewRequired" web/src/pages/AnalyzePage.tsx >> /tmp/final-evidence/final-trust-checks.txt
+          python /tmp/iteration2_demo.py 2>&1 | tee /tmp/final-evidence/final-real-demo.txt
+          cp iteration2-real-*.json /tmp/final-evidence/
+
+      - name: Run product and capture evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          CVEzD3FEND api > /tmp/final-evidence/final-api.log 2>&1 & api_pid=$!
+          (cd web && npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/final-evidence/final-vite.log 2>&1) & vite_pid=$!
+          trap 'kill "$api_pid" "$vite_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8000/api/health >/dev/null && curl -fsS http://127.0.0.1:5173/ >/dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/api/health > /tmp/final-evidence/final-health.json
+          python /tmp/capture.py
+          find web/docs/screenshots -maxdepth 1 -name 'multi-cve-0[347]-*.png' -printf '%f %s bytes\n' | sort > /tmp/final-evidence/final-screenshots.txt
+          awk '$2 < 5000 { exit 1 }' /tmp/final-evidence/final-screenshots.txt
+          kill "$api_pid" "$vite_pid" 2>/dev/null || true
+          trap - EXIT
+
+      - name: Create one validated corrective commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -- web/tsconfig.tsbuildinfo web/tsconfig.node.tsbuildinfo 2>/dev/null || true
+          git diff --check
+          expected=$(cat <<'EOF'
+          web/docs/screenshots/multi-cve-03-all-candidates.png
+          web/docs/screenshots/multi-cve-04-partial-success.png
+          web/docs/screenshots/multi-cve-07-focused-route-truth.png
+          web/src/components/reasoning/batch/BatchDecisionSummary.tsx
+          web/src/components/reasoning/graph/ThreatDefenseGraphNavigator.tsx
+          web/src/components/reasoning/graph/graphAdapter.ts
+          web/src/components/reasoning/graph/graphTypes.ts
+          web/src/pages/AnalyzePage.tsx
+          web/src/test/AnalyzePage.test.tsx
+          web/src/test/batchGraphAdapter.test.ts
+          EOF
+          )
+          actual=$(git status --short | awk '$2 ~ /^web\// {print $2}' | sort)
+          test "$actual" = "$(printf '%s\n' "$expected" | sed 's/^          //' | sed '/^$/d' | sort)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/src web/docs/screenshots/multi-cve-03-all-candidates.png web/docs/screenshots/multi-cve-04-partial-success.png web/docs/screenshots/multi-cve-07-focused-route-truth.png
+          git diff --cached --check
+          git commit -m "fix(product): preserve focused-route truth and accessible status semantics"
+          test "$(git rev-list --count "$EXPECTED_HEAD"..HEAD)" = "1"
+          git rev-parse HEAD > /tmp/final-evidence/final-corrective-head.txt
+          git show --stat --oneline HEAD > /tmp/final-evidence/final-commit-stat.txt
+          git push origin "HEAD:$VALIDATED_BRANCH"
+
+      - name: Upload final correction evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-product-closure
+          path: |
+            /tmp/final-evidence/*
+            web/docs/screenshots/multi-cve-03-all-candidates.png
+            web/docs/screenshots/multi-cve-04-partial-success.png
+            web/docs/screenshots/multi-cve-07-focused-route-truth.png
+          if-no-files-found: error
+          retention-days: 7
