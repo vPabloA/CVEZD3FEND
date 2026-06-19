@@ -1,0 +1,46 @@
+name: Final closure workspace
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current product head
+        uses: actions/checkout@v4
+        with:
+          ref: feat/multi-cve-contextual-analysis
+          fetch-depth: 0
+      - name: Verify exact head and clean tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "3857b2adb0d5cb18b7d1260397c31fbd87259d36"
+          test -z "$(git status --short)"
+          git rev-parse HEAD > final-closure-head.txt
+          git status --short > final-closure-status.txt
+          git log --oneline --decorate -15 > final-closure-log.txt
+      - name: Package source workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar --exclude=.git --exclude=.venv --exclude=web/node_modules --exclude=.pytest_cache -czf final-closure-workspace.tar.gz .
+          sha256sum final-closure-workspace.tar.gz > final-closure-workspace.sha256
+      - name: Upload workspace
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-closure-workspace
+          path: |
+            final-closure-head.txt
+            final-closure-status.txt
+            final-closure-log.txt
+            final-closure-workspace.tar.gz
+            final-closure-workspace.sha256
+          if-no-files-found: error
+          retention-days: 7
