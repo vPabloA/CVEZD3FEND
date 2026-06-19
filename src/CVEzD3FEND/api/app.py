@@ -29,7 +29,9 @@ from CVEzD3FEND.intelligence.providers.base import ProviderError
 from CVEzD3FEND.lookup import node_summary, resolve_attack_id, resolve_route, search_nodes
 from CVEzD3FEND.models.bundle import Bundle
 from CVEzD3FEND.models.graph import NodeType
-from CVEzD3FEND.reasoning import ReasoningEngine
+from CVEzD3FEND.reasoning import BatchReasoningEngine, ReasoningEngine
+from CVEzD3FEND.reasoning.batch import BatchLimitError
+from CVEzD3FEND.reasoning.models import BatchAnalysisRequest
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +192,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             result = engine.reason(cve_id)
             return result.model_dump(mode="json")
+        finally:
+            engine.close()
+
+    @app.post("/api/reason/batch")
+    def reason_cves_batch(
+        request: BatchAnalysisRequest,
+        bundle: Bundle = Depends(get_bundle),
+    ) -> dict:
+        engine = BatchReasoningEngine(settings, bundle)
+        try:
+            result = engine.analyze(request)
+            # Omit optional candidate_graph when the caller did not explicitly
+            # request the complete candidate universe.
+            return result.model_dump(mode="json", exclude_none=True)
+        except BatchLimitError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             engine.close()
 

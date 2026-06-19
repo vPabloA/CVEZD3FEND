@@ -1,9 +1,10 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AnalyzePage from "@/pages/AnalyzePage";
 import * as api from "@/lib/api";
-import { makeReasoningResult } from "@/test/fixtures/reasoningResult";
+import { makeBatchReasoningResult } from "@/test/fixtures/batchReasoningResult";
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -11,10 +12,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
     ...actual,
     apiHealth: vi.fn(),
     getMeta: vi.fn(),
-    reasonCve: vi.fn(),
-    proposeRoute: vi.fn(),
-    validateRoute: vi.fn(),
-    promoteEdge: vi.fn(),
+    reasonCves: vi.fn(),
   };
 });
 
@@ -33,14 +31,25 @@ const META_OK = {
   coverage_summary: {},
 };
 
-function renderAnalyze(initialEntry = "/analyze?cve=CVE-2024-0001") {
+function renderAnalyze(initialEntry = "/analyze?cve=CVE-2025-0168") {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
-      <Routes>
-        <Route path="/analyze" element={<AnalyzePage />} />
-      </Routes>
+      <Routes><Route path="/analyze" element={<AnalyzePage />} /></Routes>
     </MemoryRouter>
   );
+}
+
+async function healthyPage(entry?: string) {
+  vi.mocked(api.apiHealth).mockResolvedValue(HEALTHY);
+  vi.mocked(api.getMeta).mockResolvedValue(META_OK);
+  const user = userEvent.setup();
+  renderAnalyze(entry);
+  await screen.findByRole("form", { name: /Multi-CVE contextual analysis/i });
+  return user;
+}
+
+async function submitDefault(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: /Analyze CVEs/i }));
 }
 
 afterEach(() => {
@@ -48,155 +57,246 @@ afterEach(() => {
   localStorage.clear();
 });
 
-describe("AnalyzePage", () => {
+describe("AnalyzePage multi-CVE workbench", () => {
   it("shows an honest degraded state when the API sidecar is unreachable", async () => {
     vi.mocked(api.apiHealth).mockRejectedValue(new api.ApiError("Cannot reach the CVEzD3FEND API sidecar"));
-
     renderAnalyze();
-
     expect(await screen.findByText(/API sidecar not reachable/i)).toBeInTheDocument();
-    expect(screen.getByText(/CVEzD3FEND api/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /check again/i })).toBeInTheDocument();
-    // No reasoning request should be attempted while the API is unreachable.
-    expect(api.reasonCve).not.toHaveBeenCalled();
+    expect(screen.getByText(/No synthetic result or client-side mapping/i)).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveClass("bg-amber-950", "text-amber-50");
+    expect(api.reasonCves).not.toHaveBeenCalled();
   });
 
-  it("shows a loading state while the reasoning engine is running", async () => {
-    vi.mocked(api.apiHealth).mockResolvedValue(HEALTHY);
-    vi.mocked(api.getMeta).mockResolvedValue(META_OK);
-    vi.mocked(api.reasonCve).mockReturnValue(new Promise(() => {})); // never resolves
-
-    renderAnalyze();
-
-    expect(await screen.findByText(/Running reasoning engine for CVE-2024-0001/i)).toBeInTheDocument();
+  it("starts idle and does not analyze a deep-linked CVE without user action", async () => {
+    await healthyPage();
+    expect(screen.getByText(/Analyze several CVEs in one operational context/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/CVE identifiers/i)).toHaveValue("CVE-2025-0168");
+    expect(api.reasonCves).not.toHaveBeenCalled();
   });
 
-  it("shows an error state with retry when reasoning fails", async () => {
-    vi.mocked(api.apiHealth).mockResolvedValue(HEALTHY);
-    vi.mocked(api.getMeta).mockResolvedValue(META_OK);
-    vi.mocked(api.reasonCve).mockRejectedValue(new api.ApiError("CVE not found"));
-
-    renderAnalyze();
-
-    expect(await screen.findByText("CVE not found")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+  it("shows loading-selected while exact lookup and scoring are running", async () => {
+    const user = await healthyPage();
+    vi.mocked(api.reasonCves).mockReturnValue(new Promise(() => {}));
+    await submitDefault(user);
+    expect(screen.getByText(/Running exact lookup, deterministic scoring and Selected route projection/i)).toBeInTheDocument();
   });
 
-  it("renders the full reasoning result: narrative, risk, route, edges, SOC/Detection/Hunting/CTEM, exports, provenance", async () => {
-    vi.mocked(api.apiHealth).mockResolvedValue(HEALTHY);
-    vi.mocked(api.getMeta).mockResolvedValue(META_OK);
-    vi.mocked(api.reasonCve).mockResolvedValue(makeReasoningResult());
-
-    renderAnalyze();
-
-    // Header / status
-    expect(await screen.findByRole("heading", { name: "CVE-2024-0001" })).toBeInTheDocument();
-    expect(screen.getAllByText("ok").length).toBeGreaterThan(0);
-    expect(screen.getByText(/^Live$/)).toBeInTheDocument();
-
-    // Graph-centered single pane
-    expect(screen.getByText("Trace Explorer")).toBeInTheDocument();
-    expect(screen.getByText("CVE → D3FEND trace")).toBeInTheDocument();
-    expect(screen.getByText("Route navigator")).toBeInTheDocument();
-    expect(screen.getByText("Evidencia / Advanced details")).toBeInTheDocument();
-
-    // Intelligence briefing: Tier 1 conclusion + Threat-Defense Reasoning Skills
-    expect(screen.getByText("Tier 1 conclusion")).toBeInTheDocument();
-    expect(screen.getByText("Threat-Defense Reasoning Skills")).toBeInTheDocument();
-    expect(screen.getByText("CVE Interpreter")).toBeInTheDocument();
-    expect(screen.getByText("D3FEND Advisor")).toBeInTheDocument();
-    expect(screen.getByText("Defensive direction")).toBeInTheDocument();
-    expect(screen.getByText(/inyección SQL remota/)).toBeInTheDocument();
-
-    // Risk summary — KEV listed pushes overall level to Critical
-    expect(screen.getByText("Risk summary")).toBeInTheDocument();
-    expect(screen.getAllByText(/Critical/).length).toBeGreaterThan(0);
-
-    // Route contract buckets
-    const routeSection = screen.getByText("Route contract").closest("section")!;
-    expect(within(routeSection).getByText("Canonical chain")).toBeInTheDocument();
-    expect(within(routeSection).getAllByText("T1190").length).toBeGreaterThan(0);
-
-    // Reasoning trace edges with classification badges
-    expect(screen.getByText(/Reasoning trace/)).toBeInTheDocument();
-    expect(screen.getAllByText("Official").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Analytical (AI)").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Conditional").length).toBeGreaterThan(0);
-
-    // Provenance ledger
-    const provenanceSection = screen.getByText("Provenance ledger").closest("section")!;
-    expect(within(provenanceSection).getAllByText("nvd").length).toBeGreaterThan(0);
-
-    // SOC / Detection / Hunting / CTEM
-    expect(screen.getByText("SOC Action Pack")).toBeInTheDocument();
-    expect(screen.getAllByText("Isolate affected host from the network").length).toBeGreaterThan(0);
-    expect(screen.getByText("Detection engineering")).toBeInTheDocument();
-    expect(screen.getByText("Alert on UNION SELECT in HTTP parameters")).toBeInTheDocument();
-    expect(screen.getByText("Threat hunting")).toBeInTheDocument();
-    expect(screen.getByText("CTEM plan")).toBeInTheDocument();
-    expect(screen.getByText("Apply vendor patch 1.2.3")).toBeInTheDocument();
-
-    // Exports
-    expect(screen.getByText("Exports")).toBeInTheDocument();
-    expect(screen.getByText("Markdown report")).toBeInTheDocument();
-
-    // Promotion is governed from one compact review control, not repeated under every edge.
-    expect(screen.getByRole("button", { name: /promote selected edge/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /promote to canonical/i })).not.toBeInTheDocument();
+  it("sends multi-CVE context, Top-K and Selected opt-out explicitly", async () => {
+    const user = await healthyPage("/analyze");
+    vi.mocked(api.reasonCves).mockResolvedValue(makeBatchReasoningResult());
+    await user.type(screen.getByLabelText(/CVE identifiers/i), "CVE-2025-0168, CVE-2026-0544, invalid");
+    await user.type(screen.getByLabelText(/Technologies/i), "Windows, Active Directory");
+    await user.click(screen.getByRole("checkbox", { name: /internet-facing/i }));
+    await user.click(screen.getByRole("checkbox", { name: /credential theft/i }));
+    await user.selectOptions(screen.getByLabelText(/Audience/i), "SOC");
+    await user.selectOptions(screen.getByLabelText(/Top-K/i), "5");
+    await submitDefault(user);
+    await waitFor(() => expect(api.reasonCves).toHaveBeenCalledTimes(1));
+    const request = vi.mocked(api.reasonCves).mock.calls[0][0];
+    expect(request).toMatchObject({
+      cve_ids: ["CVE-2025-0168", "CVE-2026-0544", "INVALID"],
+      context: { technologies: ["Windows", "Active Directory"], exposure: ["internet-facing"], priorities: ["credential theft"], audience: "SOC" },
+      top_k: 5,
+      use_ai: false,
+      include_all_candidates: false,
+    });
   });
 
-  it("shows the human-review banner only when human_review.required is true", async () => {
-    vi.mocked(api.apiHealth).mockResolvedValue(HEALTHY);
-    vi.mocked(api.getMeta).mockResolvedValue(META_OK);
-    vi.mocked(api.reasonCve).mockResolvedValue(
-      makeReasoningResult({ human_review: { required: true, reason: "Conditional edges need analyst confirmation." } })
-    );
-
-    renderAnalyze();
-
-    const banner = await screen.findByRole("alert");
-    expect(banner).toHaveTextContent(/requiere revisión/i);
-    expect(banner).toHaveTextContent("Conditional edges need analyst confirmation.");
+  it("renders Selected graph, ranking, partial status and textual summary", async () => {
+    const user = await healthyPage();
+    vi.mocked(api.reasonCves).mockResolvedValue(makeBatchReasoningResult());
+    await submitDefault(user);
+    expect(await screen.findByText(/Partial analysis — usable results with declared gaps/i)).toBeInTheDocument();
+    expect(screen.getByText(/Showing 2 selected routes from 3 available/i)).toBeInTheDocument();
+    expect(screen.getByText("Selected contextual routes")).toBeInTheDocument();
+    expect(screen.getByText("#1")).toBeInTheDocument();
+    expect(screen.getByText("#2")).toBeInTheDocument();
+    expect(screen.getAllByText(/CVE-2025-99999999/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/INVALID/).length).toBeGreaterThan(0);
+    const summary = screen.getByRole("status");
+    expect(summary).toHaveClass("bg-amber-950");
+    expect(within(summary).getByText(/Not found:/i).closest("div")).toHaveClass("text-amber-50");
+    expect(within(summary).getByText(/Invalid:/i).closest("div")).toHaveClass("text-rose-50");
   });
 
-  it("does not show the human-review banner when not required", async () => {
-    vi.mocked(api.apiHealth).mockResolvedValue(HEALTHY);
-    vi.mocked(api.getMeta).mockResolvedValue(META_OK);
-    vi.mocked(api.reasonCve).mockResolvedValue(makeReasoningResult({ human_review: { required: false, reason: "" } }));
-
-    renderAnalyze();
-
-    await screen.findByText("Trace Explorer");
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  it("loads All only after opt-in and consumes candidate_graph", async () => {
+    const user = await healthyPage();
+    vi.mocked(api.reasonCves)
+      .mockResolvedValueOnce(makeBatchReasoningResult())
+      .mockResolvedValueOnce(makeBatchReasoningResult({}, true));
+    await submitDefault(user);
+    await screen.findByText("Selected contextual routes");
+    await user.click(screen.getByRole("tab", { name: /Load all candidates/i }));
+    expect(await screen.findByText("Complete candidate universe")).toBeInTheDocument();
+    expect(screen.getByText(/Showing complete universe: 3 routes/i)).toBeInTheDocument();
+    expect(screen.getAllByText("T1027").length).toBeGreaterThan(0);
+    expect(vi.mocked(api.reasonCves).mock.calls[1][0].include_all_candidates).toBe(true);
   });
 
-  it("warns honestly when the API is reachable but the reasoning plane is unavailable", async () => {
-    vi.mocked(api.apiHealth).mockResolvedValue(HEALTHY);
-    vi.mocked(api.getMeta).mockResolvedValue({ ...META_OK, reasoning_available: false });
-    vi.mocked(api.reasonCve).mockRejectedValue(new api.ApiError("reasoning plane unavailable"));
-
-    renderAnalyze();
-
-    expect(await screen.findByText(/reasoning plane reports itself unavailable/i)).toBeInTheDocument();
+  it("returns to Selected without a new request and reuses cached All", async () => {
+    const user = await healthyPage();
+    vi.mocked(api.reasonCves)
+      .mockResolvedValueOnce(makeBatchReasoningResult())
+      .mockResolvedValueOnce(makeBatchReasoningResult({}, true));
+    await submitDefault(user);
+    await user.click(await screen.findByRole("tab", { name: /Load all candidates/i }));
+    await screen.findByText("Complete candidate universe");
+    await user.click(screen.getByRole("tab", { name: /^Selected$/i }));
+    expect(await screen.findByText("Selected contextual routes")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /All candidates/i }));
+    await screen.findByText("Complete candidate universe");
+    expect(api.reasonCves).toHaveBeenCalledTimes(2);
   });
 
-  it("shows the empty state when no CVE is provided", async () => {
-    vi.mocked(api.apiHealth).mockResolvedValue(HEALTHY);
-    vi.mocked(api.getMeta).mockResolvedValue(META_OK);
-
-    renderAnalyze("/analyze");
-
-    expect(await screen.findByText("Enter a CVE ID to begin analysis")).toBeInTheDocument();
-    expect(api.reasonCve).not.toHaveBeenCalled();
+  it("preserves Selected when the All request fails", async () => {
+    const user = await healthyPage();
+    vi.mocked(api.reasonCves)
+      .mockResolvedValueOnce(makeBatchReasoningResult())
+      .mockRejectedValueOnce(new api.ApiError("candidate graph unavailable"));
+    await submitDefault(user);
+    await user.click(await screen.findByRole("tab", { name: /Load all candidates/i }));
+    const allError = await screen.findByRole("alert");
+    expect(allError).toHaveTextContent(/candidate graph unavailable/i);
+    expect(allError).toHaveClass("bg-rose-950", "text-rose-50");
+    expect(screen.getByText("Selected contextual routes")).toBeInTheDocument();
+    expect(screen.getByText("#1")).toBeInTheDocument();
   });
 
-  it("waits for results before resolving", async () => {
-    vi.mocked(api.apiHealth).mockResolvedValue(HEALTHY);
-    vi.mocked(api.getMeta).mockResolvedValue(META_OK);
-    vi.mocked(api.reasonCve).mockResolvedValue(makeReasoningResult());
-
-    renderAnalyze();
-
-    await waitFor(() => expect(api.reasonCve).toHaveBeenCalledWith("CVE-2024-0001"));
+  it("filters the graph locally by CVE without requesting the backend", async () => {
+    const user = await healthyPage();
+    vi.mocked(api.reasonCves).mockResolvedValue(makeBatchReasoningResult());
+    await submitDefault(user);
+    const chip = await screen.findByRole("button", { name: /CVE-2025-0168 represented/i });
+    await user.click(chip);
+    expect(api.reasonCves).toHaveBeenCalledTimes(1);
+    const graph = screen.getByTestId("force-graph-2d");
+    expect(within(graph).getByRole("button", { name: "CVE-2025-0168" })).toBeInTheDocument();
+    expect(within(graph).queryByRole("button", { name: "CVE-2026-0544" })).not.toBeInTheDocument();
   });
+
+  it("focuses a ranked route and exposes keyboard-operable inspector evidence", async () => {
+    const user = await healthyPage();
+    vi.mocked(api.reasonCves).mockResolvedValue(makeBatchReasoningResult());
+    await submitDefault(user);
+    const routeButton = (await screen.findAllByText("CVE-2026-0544")).map((item) => item.closest("button")).find((item) => item?.getAttribute("aria-pressed") !== null)!;
+    await user.click(routeButton);
+    expect(routeButton).toHaveAttribute("aria-pressed", "true");
+    const traceStep = screen.getByRole("button", { name: /Trace step 4: T1574.007/i });
+    traceStep.focus();
+    await user.keyboard("{Enter}");
+    expect(await screen.findByText("Selected node")).toBeInTheDocument();
+    expect(screen.getByText(/Related CVEs:/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Catalog assertion/i).length).toBeGreaterThan(0);
+  });
+
+  it("shows Selected ATT&CK and D3FEND convergence with counts", async () => {
+    const user = await healthyPage();
+    vi.mocked(api.reasonCves).mockResolvedValue(makeBatchReasoningResult());
+    await submitDefault(user);
+    const attackPanel = await screen.findByLabelText(/ATT&CK convergence — Selected/i);
+    expect(within(attackPanel).getByText(/2 CVE · 2 routes/i)).toBeInTheDocument();
+    expect(within(attackPanel).getByText(/D3-LFP/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/D3FEND reuse — Selected/i)).toHaveTextContent("T1574.007");
+  });
+
+  it("renders all three backend narratives and provenance", async () => {
+    const user = await healthyPage();
+    vi.mocked(api.reasonCves).mockResolvedValue(makeBatchReasoningResult());
+    await submitDefault(user);
+    expect(await screen.findByText(/Se analizaron dos CVE/i)).toBeInTheDocument();
+    expect(screen.getByText(/Validar T1574.007/i)).toBeInTheDocument();
+    expect(screen.getByText(/Universo=3/i)).toBeInTheDocument();
+    expect(screen.getAllByText("cve2capec:cve_2025").length).toBeGreaterThan(0);
+  });
+
+  it("separates deterministic fallback from human review", async () => {
+    const user = await healthyPage();
+    vi.mocked(api.reasonCves).mockResolvedValue(makeBatchReasoningResult({ selection_summary: { ...makeBatchReasoningResult().selection_summary, fallback_used: true } }));
+    await submitDefault(user);
+    expect(await screen.findByText("Deterministic fallback")).toBeInTheDocument();
+    expect(screen.getByText("Catalog-backed")).toBeInTheDocument();
+    expect(screen.queryByText("Human review required")).not.toBeInTheDocument();
+    expect(screen.getByText("#1")).toBeInTheDocument();
+    expect(screen.getByText(/Se analizaron dos CVE/i)).toBeInTheDocument();
+  });
+
+  it("shows a zero-route explanation instead of an empty unexplained graph", async () => {
+    const user = await healthyPage();
+    vi.mocked(api.reasonCves).mockResolvedValue(makeBatchReasoningResult({
+      status: "not_found",
+      available_route_count: 0,
+      selected_route_count: 0,
+      selected_routes: [],
+      selected_graph: { nodes: [], edges: [] },
+      shared_attack_techniques_selected: [],
+      shared_defenses_selected: [],
+    }));
+    await submitDefault(user);
+    expect(await screen.findByText(/No graphable routes in the active projection/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not fabricate graph nodes/i)).toBeInTheDocument();
+  });
+
+  it("shows a readable API error", async () => {
+    const user = await healthyPage();
+    vi.mocked(api.reasonCves).mockRejectedValue(new api.ApiError("maximum is 50", 422));
+    await submitDefault(user);
+    expect(await screen.findByText("maximum is 50")).toBeInTheDocument();
+  });
+
+  it("keeps a complete five-layer focused route truthful above the visual cap", async () => {
+    const user = await healthyPage();
+    const selectedResult = makeBatchReasoningResult();
+    const allResult = makeBatchReasoningResult({}, true);
+    const graph = allResult.candidate_graph!;
+    const extraNodes = Array.from({ length: 70 }, (_, index) => ({
+      ...graph.nodes[0], id: `EVID-${index}`, type: "evidence" as const, name: `Evidence ${index}`, title: `Evidence ${index}`,
+    }));
+    const extraEdges = extraNodes.map((node, index) => ({
+      ...graph.edges[0], id: `E-CONTEXT-${index}`, source: "CVE-2025-0168", target: node.id, type: "has_evidence",
+    }));
+    allResult.candidate_graph = { nodes: [...graph.nodes, ...extraNodes], edges: [...graph.edges, ...extraEdges] };
+    allResult.available_route_count = 73;
+    vi.mocked(api.reasonCves).mockResolvedValueOnce(selectedResult).mockResolvedValueOnce(allResult);
+
+    await submitDefault(user);
+    await user.click(await screen.findByRole("tab", { name: /Load all candidates/i }));
+    const density = await screen.findByText(/complete universe contains 73 routes and 79 nodes/i);
+    expect(density).toHaveClass("bg-violet-950", "text-violet-50");
+    expect(density).toHaveTextContent(/progressive visual disclosure/i);
+    expect(density).toHaveTextContent(/route list and backend evidence remain complete/i);
+    expect(screen.queryByText(/This route is partial/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Trace step 1: CVE-2025-0168/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Trace step 5: D3-LFP/i })).toBeInTheDocument();
+  });
+
+
+  it("shows human review only for a real route gap, independently of fallback", async () => {
+    const user = await healthyPage();
+    const base = makeBatchReasoningResult();
+    const incomplete = { ...base.selected_routes[0], completeness: 0.8, gaps: ["Missing D3FEND layer"] };
+    vi.mocked(api.reasonCves).mockResolvedValue({
+      ...base,
+      selected_routes: [incomplete, base.selected_routes[1]],
+      selection_summary: { ...base.selection_summary, fallback_used: true },
+    });
+    await submitDefault(user);
+    expect(await screen.findByText("Human review required")).toBeInTheDocument();
+    expect(screen.getByText("Deterministic fallback")).toBeInTheDocument();
+    expect(screen.getByText(/This route is partial: Missing D3FEND layer/i)).toBeInTheDocument();
+  });
+
+
+  it("shows AI reranked without fallback or human-review semantics", async () => {
+    const user = await healthyPage();
+    const base = makeBatchReasoningResult();
+    vi.mocked(api.reasonCves).mockResolvedValue({
+      ...base,
+      selection_summary: { ...base.selection_summary, selection_mode: "ai_reranked", fallback_used: false },
+    });
+    await submitDefault(user);
+    expect((await screen.findAllByText("AI reranked")).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Deterministic fallback")).not.toBeInTheDocument();
+    expect(screen.queryByText("Human review required")).not.toBeInTheDocument();
+  });
+
 });

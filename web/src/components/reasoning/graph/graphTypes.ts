@@ -32,6 +32,11 @@ export interface GraphNodeData {
   officialUrl: string | null;
   reviewRequired: boolean;
   synthetic: boolean;
+  cveIds: string[];
+  routeIds: string[];
+  sharedCveCount: number;
+  defensiveReuseCount: number;
+  backendMetadata: Record<string, unknown>;
   x?: number;
   y?: number;
   vx?: number;
@@ -59,6 +64,9 @@ export interface GraphLinkData {
   conditional: boolean;
   weakFit: boolean;
   reviewRequired: boolean;
+  cveIds: string[];
+  routeIds: string[];
+  backendMetadata: Record<string, unknown>;
 }
 
 export interface GraphModel {
@@ -70,6 +78,8 @@ export interface GraphModel {
   visibleLinkIds: Set<string>;
   routeChain: string[];
   routeConfidence: number;
+  focusedRouteComplete: boolean;
+  focusedRouteGaps: string[];
 }
 
 export interface NodeViewModel {

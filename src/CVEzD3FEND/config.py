@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     http_timeout_seconds: float = 30.0
     http_max_bytes: int = 25 * 1024 * 1024
 
+    # --- Request-scoped multi-CVE analysis ---
+    max_batch_cves: int = 50
+    max_batch_years: int = 10
+    max_batch_candidate_routes: int = 10000
+    batch_shortlist_multiplier: int = 3
+
     # --- Optional collectors ---
     enable_kev: bool = False
     enable_epss: bool = False

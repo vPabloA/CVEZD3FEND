@@ -282,7 +282,7 @@ describe("ThreatDefenseGraphNavigator", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText("This route is partial. Defensive intent is available, but no canonical CWE/CAPEC chain was found.")).toBeInTheDocument();
+    expect(screen.getByText("This route is partial: Missing CWE layer; Missing CAPEC layer.")).toBeInTheDocument();
   });
 
   it("cherry-picks trace steps from the route spine chips", async () => {
