@@ -14,19 +14,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: audit/iteration2-preflight-20260618
           fetch-depth: 0
-      - name: Report patch transport integrity
+      - name: Report split transport integrity
         shell: bash
         run: |
-          branch=audit/iteration2-preflight-20260618
-          git fetch origin "$branch"
           {
-            for part in feature.00 feature.01 feature.02; do
-              git show "origin/$branch:audit/iteration2/patches/$part" > "$part"
-              sha256sum "$part"
-              wc -c "$part"
-            done
+            sha256sum audit/iteration2/patches/feature.00.0
+            sha256sum audit/iteration2/patches/feature.00.1
+            sha256sum audit/iteration2/patches/feature.00.2
+            sha256sum audit/iteration2/patches/feature.00.3
+            wc -c audit/iteration2/patches/feature.00.0 audit/iteration2/patches/feature.00.1 audit/iteration2/patches/feature.00.2 audit/iteration2/patches/feature.00.3
+            cat audit/iteration2/patches/feature.00.0 audit/iteration2/patches/feature.00.1 audit/iteration2/patches/feature.00.2 audit/iteration2/patches/feature.00.3 > assembled-feature.00
+            sha256sum assembled-feature.00
+            wc -c assembled-feature.00
           } > patch-diagnostic.txt 2>&1
           cat patch-diagnostic.txt
       - uses: actions/upload-artifact@v4
