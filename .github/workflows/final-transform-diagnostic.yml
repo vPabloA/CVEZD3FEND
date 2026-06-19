@@ -1,0 +1,49 @@
+name: Final corrective transform diagnostic
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout audit scripts
+        uses: actions/checkout@v4
+        with:
+          ref: audit/iteration2-preflight-20260618
+          fetch-depth: 0
+      - name: Prepare exact product tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp audit/final-closure/*.py /tmp/
+          git fetch origin feat/multi-cve-contextual-analysis
+          test "$(git rev-parse origin/feat/multi-cve-contextual-analysis)" = "3857b2adb0d5cb18b7d1260397c31fbd87259d36"
+          git checkout -B final-product-correction 3857b2adb0d5cb18b7d1260397c31fbd87259d36
+      - name: Apply source transform 01
+        run: python /tmp/source_01.py
+      - name: Apply source transform 02
+        run: python /tmp/source_02.py
+      - name: Apply source transform 03
+        run: python /tmp/source_03.py
+      - name: Apply graph tests 01a
+        run: python /tmp/tests_01a.py
+      - name: Apply graph tests 01b
+        run: python /tmp/tests_01b.py
+      - name: Apply page tests 02a
+        run: python /tmp/tests_02a.py
+      - name: Apply page tests 02b
+        run: python /tmp/tests_02b.py
+      - name: Apply page tests 02c review
+        run: python /tmp/tests_02c_review.py
+      - name: Apply page tests 02c AI
+        run: python /tmp/tests_02c_ai.py
+      - name: Validate transformed diff
+        run: |
+          git diff --check
+          git diff --stat
