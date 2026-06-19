@@ -1,0 +1,131 @@
+name: Iteration 2 preflight
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout approved product head
+        uses: actions/checkout@v4
+        with:
+          ref: feat/multi-cve-contextual-analysis
+          fetch-depth: 0
+
+      - name: Verify exact approved state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "2eae7cf325c8ac25fe92c58494a003e4d8cf08f4"
+          test -z "$(git status --short)"
+          git rev-parse HEAD > iteration2-product-head.txt
+          git status --short > iteration2-status-before.txt
+          git log --oneline -5 > iteration2-log.txt
+
+      - name: Restore generated bundle artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data/dist
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/knowledge-bundle.json > data/dist/knowledge-bundle.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/promoted-edges.json > data/dist/promoted-edges.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/quality-report.json > data/dist/quality-report.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,api]'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend
+        working-directory: web
+        run: npm ci
+
+      - name: Compile Python
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m compileall src tests 2>&1 | tee iteration2-compileall.txt
+
+      - name: Run backend tests
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -q 2>&1 | tee iteration2-pytest.txt
+
+      - name: Run frontend lint
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee ../iteration2-frontend-lint.txt
+
+      - name: Run frontend tests
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee ../iteration2-frontend-test.txt
+
+      - name: Run frontend build
+        shell: bash
+        working-directory: web
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ../iteration2-frontend-build.txt
+
+      - name: Check whitespace
+        shell: bash
+        run: |
+          set -o pipefail
+          git diff --check 2>&1 | tee iteration2-git-diff-check.txt
+
+      - name: Package exact workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar \
+            --exclude=.git \
+            --exclude=.venv \
+            --exclude=web/node_modules \
+            --exclude=.pytest_cache \
+            -czf /tmp/iteration2-workspace.tar.gz .
+          mv /tmp/iteration2-workspace.tar.gz iteration2-workspace.tar.gz
+          sha256sum iteration2-workspace.tar.gz > iteration2-workspace.sha256
+
+      - name: Upload preflight evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: iteration2-preflight
+          path: |
+            iteration2-product-head.txt
+            iteration2-status-before.txt
+            iteration2-log.txt
+            iteration2-compileall.txt
+            iteration2-pytest.txt
+            iteration2-frontend-lint.txt
+            iteration2-frontend-test.txt
+            iteration2-frontend-build.txt
+            iteration2-git-diff-check.txt
+            iteration2-workspace.tar.gz
+            iteration2-workspace.sha256
+          if-no-files-found: error
+          retention-days: 7
