@@ -41,7 +41,8 @@ try:
         ("priorities", "initial access"),
         ("priorities", "credential theft"),
     ]:
-        driver.find_element(By.CSS_SELECTOR, f'input[name="{name}"][value="{value}"]').click()
+        checkbox = driver.find_element(By.CSS_SELECTOR, f'input[name="{name}"][value="{value}"]')
+        driver.execute_script("arguments[0].click();", checkbox)
     Select(driver.find_element(By.ID, "audience")).select_by_visible_text("SOC")
     Select(driver.find_element(By.ID, "top-k")).select_by_visible_text("5")
     snap("#multi-cve-analysis-form", "multi-cve-01-input-context.png")
