@@ -1,0 +1,32 @@
+name: Iteration 2 promote clean history
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/iteration2-preflight-20260618
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Fast-forward product branch to validated commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          product_branch=feat/multi-cve-contextual-analysis
+          old_head=2eae7cf325c8ac25fe92c58494a003e4d8cf08f4
+          new_head=3857b2adb0d5cb18b7d1260397c31fbd87259d36
+          git fetch origin "$product_branch" audit/iteration2-validated-v1
+          test "$(git rev-parse origin/$product_branch)" = "$old_head"
+          test "$(git merge-base "$old_head" "$new_head")" = "$old_head"
+          test "$(git rev-list --count "$old_head".."$new_head")" = "3"
+          test -z "$(git diff --name-only "$old_head" "$new_head" -- '.github/workflows/*' 'audit/*')"
+          git push origin "$new_head:refs/heads/$product_branch"
