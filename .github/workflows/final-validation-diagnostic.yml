@@ -1,0 +1,61 @@
+name: Final validation command diagnostic
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout audit harness
+        uses: actions/checkout@v4
+        with:
+          ref: audit/iteration2-preflight-20260618
+          fetch-depth: 0
+      - name: Prepare correction
+        shell: bash
+        run: |
+          cp -r audit/final-closure /tmp/final-closure
+          git fetch origin feat/multi-cve-contextual-analysis
+          git checkout -B correction 3857b2adb0d5cb18b7d1260397c31fbd87259d36
+          python /tmp/final-closure/apply_all.py
+          mkdir -p data/dist
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/knowledge-bundle.json > data/dist/knowledge-bundle.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/promoted-edges.json > data/dist/promoted-edges.json
+          git show acef9dd4932bd98e0cf49a3ee1f460c072aa553e:data/dist/quality-report.json > data/dist/quality-report.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,api]'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install frontend
+        working-directory: web
+        run: npm ci
+      - name: Python compile
+        run: python3 -m compileall src tests
+      - name: Backend tests
+        run: pytest -q
+      - name: Frontend lint
+        working-directory: web
+        run: npm run lint
+      - name: Frontend tests
+        working-directory: web
+        run: npm run test
+      - name: Frontend build
+        working-directory: web
+        run: npm run build
+      - name: Diff check
+        run: git diff --check
