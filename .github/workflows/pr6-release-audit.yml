@@ -1,0 +1,44 @@
+name: PR 6 release readiness audit
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ux/trace-graph-navigator-polish
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev,api]'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - working-directory: web
+        run: npm ci
+      - name: Run exact PR 6 audit
+        shell: bash
+        run: |
+          git fetch origin audit/iteration2-preflight-20260618
+          git show origin/audit/iteration2-preflight-20260618:audit/final-closure/pr6_audit.sh > /tmp/pr6_audit.sh
+          bash /tmp/pr6_audit.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr6-release-readiness
+          path: /tmp/pr6-evidence/*
+          if-no-files-found: error
+          retention-days: 7
