@@ -1,0 +1,34 @@
+name: Iteration 2 patch diagnostic
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Report patch transport integrity
+        shell: bash
+        run: |
+          branch=audit/iteration2-preflight-20260618
+          git fetch origin "$branch"
+          { git show "origin/$branch:audit/iteration2/patches/feature.00"; git show "origin/$branch:audit/iteration2/patches/feature.01"; git show "origin/$branch:audit/iteration2/patches/feature.02"; } | tr -d '\n' > feature.b64
+          git show "origin/$branch:audit/iteration2/patches/tests.00" | tr -d '\n' > tests.b64
+          git show "origin/$branch:audit/iteration2/patches/docs.00" | tr -d '\n' > docs.b64
+          wc -c feature.b64 tests.b64 docs.b64
+          for name in feature tests docs; do
+            base64 --decode "$name.b64" > "$name.xz" || true
+            xz --test "$name.xz" || true
+            xz --decompress --stdout "$name.xz" > "$name.patch" || true
+            sha256sum "$name.patch"
+            wc -c "$name.patch"
+          done
