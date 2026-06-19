@@ -1,0 +1,34 @@
+name: Promote validated final correction
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: final-closure-validation-run-3
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Fast-forward PR 11 branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          product_branch=feat/multi-cve-contextual-analysis
+          old_head=3857b2adb0d5cb18b7d1260397c31fbd87259d36
+          new_head=661334a4e70d12c51ba627b35a795f39068ead0a
+          git fetch origin "$product_branch" audit/final-closure-validated-v1
+          test "$(git rev-parse origin/$product_branch)" = "$old_head"
+          test "$(git rev-parse origin/audit/final-closure-validated-v1)" = "$new_head"
+          test "$(git merge-base "$old_head" "$new_head")" = "$old_head"
+          test "$(git rev-list --count "$old_head".."$new_head")" = "1"
+          test -z "$(git diff --name-only "$old_head" "$new_head" -- '.github/workflows/*' 'audit/*' 'src/*' 'tests/*' 'web/package.json' 'web/package-lock.json')"
+          git push origin "$new_head:refs/heads/$product_branch"
