@@ -14,6 +14,7 @@ scripts = (
     "tests_02b.py",
     "tests_02c_review.py",
     "tests_02c_ai.py",
+    "tests_03.py",
 )
 for script in scripts:
     runpy.run_path(str(root / script), run_name="__main__")
