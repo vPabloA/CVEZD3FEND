@@ -1,9 +1,9 @@
 name: Final closure workspace
 
 on:
-  pull_request:
+  push:
     branches:
-      - feat/multi-cve-contextual-analysis
+      - audit/iteration2-preflight-20260618
 
 permissions:
   contents: read
