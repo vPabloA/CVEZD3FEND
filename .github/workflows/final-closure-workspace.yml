@@ -6,41 +6,39 @@ on:
       - audit/iteration2-preflight-20260618
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout current product head
+      - name: Checkout audit branch
         uses: actions/checkout@v4
         with:
-          ref: feat/multi-cve-contextual-analysis
+          ref: audit/iteration2-preflight-20260618
           fetch-depth: 0
-      - name: Verify exact head and clean tree
+          persist-credentials: true
+      - name: Export current product patch
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "3857b2adb0d5cb18b7d1260397c31fbd87259d36"
-          test -z "$(git status --short)"
-          git rev-parse HEAD > final-closure-head.txt
-          git status --short > final-closure-status.txt
-          git log --oneline --decorate -15 > final-closure-log.txt
-      - name: Package source workspace
-        shell: bash
-        run: |
-          set -euo pipefail
-          tar --exclude=.git --exclude=.venv --exclude=web/node_modules --exclude=.pytest_cache -czf final-closure-workspace.tar.gz .
-          sha256sum final-closure-workspace.tar.gz > final-closure-workspace.sha256
-      - name: Upload workspace
-        uses: actions/upload-artifact@v4
-        with:
-          name: final-closure-workspace
-          path: |
-            final-closure-head.txt
-            final-closure-status.txt
-            final-closure-log.txt
-            final-closure-workspace.tar.gz
-            final-closure-workspace.sha256
-          if-no-files-found: error
-          retention-days: 7
+          base=2eae7cf325c8ac25fe92c58494a003e4d8cf08f4
+          head=3857b2adb0d5cb18b7d1260397c31fbd87259d36
+          git fetch origin feat/multi-cve-contextual-analysis
+          test "$(git rev-parse origin/feat/multi-cve-contextual-analysis)" = "$head"
+          git diff --binary "$base" "$head" -- . ':(exclude)web/docs/screenshots/*' > /tmp/current-product.patch
+          sha256sum /tmp/current-product.patch > /tmp/current-product.patch.sha256
+          xz -9 -c /tmp/current-product.patch | base64 -w 0 > /tmp/current-product.patch.xz.b64
+          rm -rf audit/final-closure-export
+          mkdir -p audit/final-closure-export
+          split -b 4000 -d -a 3 /tmp/current-product.patch.xz.b64 audit/final-closure-export/part-
+          cp /tmp/current-product.patch.sha256 audit/final-closure-export/patch.sha256
+          printf '%s\n' "$base" > audit/final-closure-export/base.txt
+          printf '%s\n' "$head" > audit/final-closure-export/head.txt
+          wc -c /tmp/current-product.patch /tmp/current-product.patch.xz.b64 > audit/final-closure-export/sizes.txt
+          find audit/final-closure-export -maxdepth 1 -name 'part-*' -printf '%f\n' | sort > audit/final-closure-export/parts.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add audit/final-closure-export
+          git commit -m "chore(audit): export current product patch"
+          git push origin HEAD:audit/iteration2-preflight-20260618
