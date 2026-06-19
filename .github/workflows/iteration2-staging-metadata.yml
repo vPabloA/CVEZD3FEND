@@ -1,0 +1,35 @@
+name: Iteration 2 staging metadata
+
+on:
+  pull_request:
+    branches:
+      - feat/multi-cve-contextual-analysis
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/iteration2-preflight-20260618
+          fetch-depth: 0
+      - name: Export validated commit chain
+        shell: bash
+        run: |
+          git fetch origin audit/iteration2-validated-v1
+          git log --pretty=raw --max-count=4 origin/audit/iteration2-validated-v1 > iteration2-staging-commits.txt
+          git diff --stat 2eae7cf325c8ac25fe92c58494a003e4d8cf08f4 origin/audit/iteration2-validated-v1 > iteration2-staging-stat.txt
+          git diff --name-only 2eae7cf325c8ac25fe92c58494a003e4d8cf08f4 origin/audit/iteration2-validated-v1 > iteration2-staging-files.txt
+          cat iteration2-staging-commits.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iteration2-staging-metadata
+          path: |
+            iteration2-staging-commits.txt
+            iteration2-staging-stat.txt
+            iteration2-staging-files.txt
+          if-no-files-found: error
+          retention-days: 7
