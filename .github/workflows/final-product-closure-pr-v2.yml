@@ -125,7 +125,8 @@ jobs:
             web/src/components/reasoning/graph/graphTypes.ts \
             web/src/pages/AnalyzePage.tsx \
             web/src/test/AnalyzePage.test.tsx \
-            web/src/test/batchGraphAdapter.test.ts | sort)
+            web/src/test/batchGraphAdapter.test.ts \
+            web/src/test/graphNavigator.test.tsx | sort)
           test "$actual" = "$expected"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
