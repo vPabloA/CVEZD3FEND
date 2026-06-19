@@ -42,11 +42,18 @@ class AttackUniverse:
         deprecated: Iterable[str] = (),
         revoked: Mapping[str, str] | None = None,
     ) -> "AttackUniverse":
+        # `available` describes the authoritative ATT&CK registry, not whether
+        # auxiliary sources happened to contribute a few technique ids.  When
+        # techniques_db is unavailable it is represented as an empty mapping;
+        # keeping this distinction preserves the structural-only fallback for
+        # every well-formed CAPEC ATT&CK reference instead of treating the
+        # auxiliary subset as a complete registry.
+        registry_available = bool(data)
         ids = {normalize_attack_id(k) for k in (data or {})}
         ids |= {normalize_attack_id(x) for x in extra_ids}
         ids = {t for t in ids if t}
         ids |= {t.split(".")[0] for t in ids if "." in t}
-        if not ids and not data:
+        if not ids and not registry_available:
             return cls.empty()
         return cls(
             techniques=frozenset(ids),
@@ -58,7 +65,7 @@ class AttackUniverse:
                 for key, repl in (revoked or {}).items()
                 if (norm := normalize_attack_id(key))
             },
-            available=True,
+            available=registry_available,
         )
 
     def __contains__(self, attack_id: str) -> bool:
