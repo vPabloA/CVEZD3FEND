@@ -2,6 +2,12 @@ import type { ReasoningEdgeClassification, ReasoningResult } from "@/lib/reasoni
 
 export type GraphMode = "focused-route" | "reasoning-neighborhood" | "mitigation-path" | "full-traceability" | "evidence-view";
 
+/** Stage layout: deterministic semantic-layer trace vs. free force simulation. */
+export type GraphLayout = "trace" | "force";
+
+/** Route emphasis cherry-picker: full route vs. primary/canonical spine only. */
+export type GraphRouteEmphasis = "all" | "primary";
+
 export type GraphSelection =
   | { kind: "node"; id: string }
   | { kind: "edge"; id: string }

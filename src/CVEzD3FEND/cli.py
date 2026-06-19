@@ -6,6 +6,7 @@ See docs/OPERATIONS.md for the full command reference.
 from __future__ import annotations
 
 import json
+import errno
 import re
 from collections import Counter
 from pathlib import Path
@@ -113,6 +114,22 @@ def _write_output(content: str, output: Optional[Path]) -> None:
 
 def _load_reasoning_engine(settings: Settings) -> ReasoningEngine:
     return ReasoningEngine(settings)
+
+
+def _bind_static_server(httpd_cls, handler, host: str, port: int, retry_ports: int = 25):
+    """Bind the static file server, retrying a small port range on conflict."""
+    last_exc: OSError | None = None
+    for candidate_port in range(port, port + max(retry_ports, 1)):
+        try:
+            return httpd_cls((host, candidate_port), handler), candidate_port
+        except OSError as exc:
+            if exc.errno != errno.EADDRINUSE:
+                raise
+            last_exc = exc
+
+    if last_exc is not None:
+        raise last_exc
+    raise OSError(errno.EADDRINUSE, "No available port found")
 
 
 def _render_enrichment_result(result: EnrichmentResult, format: str) -> str:
@@ -293,20 +310,44 @@ def validate() -> None:
 
 
 @app.command()
-def serve() -> None:
+def serve(
+    host: Optional[str] = typer.Option(None, "--host", help="Host interface to bind"),
+    port: Optional[int] = typer.Option(None, "--port", help="Port to bind"),
+) -> None:
     """Serve the static SPA (web/dist if built) and the bundle (data/dist) over HTTP."""
     import functools
     import http.server
 
     settings = get_settings()
+    host = host or settings.serve_host
+    requested_port = port
+    port = port or settings.serve_port
     root = Path("web/dist") if Path("web/dist").is_dir() else settings.dist_dir
     if not root.is_dir():
         console.print(f"[red]Nothing to serve: {root} does not exist. Run `CVEzD3FEND build` first.[/red]")
         raise typer.Exit(code=1)
 
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(root))
-    httpd = http.server.ThreadingHTTPServer((settings.api_host, settings.serve_port), handler)
-    console.print(f"Serving {root} at http://{settings.api_host}:{settings.serve_port} (Ctrl+C to stop)")
+    retry_ports = 1 if requested_port is not None else 25
+    try:
+        httpd, bound_port = _bind_static_server(
+            http.server.ThreadingHTTPServer, handler, host, port, retry_ports=retry_ports
+        )
+    except OSError as exc:
+        if exc.errno == errno.EADDRINUSE and requested_port is not None:
+            console.print(
+                f"[red]Port {requested_port} is already in use. Re-run with a different `--port` or set "
+                f"`CVEZD3FEND_SERVE_PORT`.[/red]"
+            )
+            raise typer.Exit(code=1)
+        raise
+
+    if bound_port != port:
+        console.print(
+            f"[yellow]Port {port} was busy; serving {root} on http://{host}:{bound_port} instead.[/yellow]"
+        )
+    else:
+        console.print(f"Serving {root} at http://{host}:{bound_port} (Ctrl+C to stop)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

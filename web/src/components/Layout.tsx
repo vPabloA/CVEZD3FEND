@@ -29,7 +29,7 @@ export default function Layout() {
           )}
         </div>
       </header>
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
+      <main className={onAnalyze ? "w-full flex-1 bg-slate-100" : "mx-auto w-full max-w-7xl flex-1 px-4 py-6"}>
         <Outlet />
       </main>
     </div>

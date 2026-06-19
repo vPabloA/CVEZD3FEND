@@ -131,15 +131,45 @@ and may expose a "Promote to canonical" action — gated on a named reviewer
   control (AI propose/validate, promote) is disabled with an inline
   explanation. No view fakes a success state.
 
-## 10. Graph navigator placeholder (prepares a later iteration)
+## 10. Threat-Defense Knowledge Graph Navigator
 
-`components/reasoning/GraphNavigatorPlaceholder.tsx` reserves the layout slot
-for a future "Threat-Defense Knowledge Graph Navigator" on the Reasoning
-Workbench. It is intentionally non-empty: it explains what will land there,
-carries a "Next iteration" badge, and — when the reasoning result includes
-`exports.navigator_layer` — offers it as a download today. This placeholder
-must not be removed or replaced with an empty `<div>`; the eventual graph
-navigator implementation should slot into this reserved position.
+`components/reasoning/graph/ThreatDefenseGraphNavigator.tsx` is the central
+graph surface of the Reasoning Workbench (`/analyze`), rendering the
+classified reasoning route (`ReasoningResult.route` + `ReasoningResult.edges`)
+as an interactive graph. It is bound by the following, in addition to §1's
+40-node render cap:
+
+- Five graph modes are required: **Focused Route**, **Reasoning Neighborhood**,
+  **Mitigation Path**, **Full Traceability**, **Evidence View**
+  (`graph/GraphModeSelector.tsx`, `GraphMode` in `graph/graphTypes.ts`).
+  Default mode is **Focused Route**.
+- Selecting a node or edge MUST populate a right-hand inspector
+  (`graph/GraphInspector.tsx`) with its classification, confidence, evidence,
+  source refs, and (when safely derivable) an official-source link — never a
+  raw contract dump as the primary interaction.
+- Official-source links (NVD, MITRE CWE/CAPEC/ATT&CK/D3FEND) MUST only be
+  built from trusted provided URLs, explicit local mappings, or
+  already-resolvable `d3f:*` identifiers (`graph/officialUrlBuilder.ts`). MUST
+  NOT invent links from uncertain abbreviations (e.g. `D3-EFA`).
+- `Mitigation Path` mode MUST make the attack-to-defense route explicit:
+  strengthen/highlight defensive edges, dim unrelated context, and add
+  inspector language explaining the path from offensive reasoning toward
+  D3FEND/defensive action (`graph/pathHighlighting.ts`).
+- Empty/degraded graph states (no graphable route, no relationships, partial
+  route, graph data unavailable, selection hidden by active filters) MUST be
+  graph-level, product-worded notices — never a silent blank canvas (§3).
+- Because `react-force-graph-2d` mutates link `source`/`target` from string
+  ids into node objects after simulation starts, all selection, path
+  highlighting, and mitigation-detection logic MUST read endpoint ids through
+  the normalization helpers in `graph/graphAdapter.ts` /
+  `graph/graphRuntime.ts` — never assume `link.source`/`link.target` remain
+  strings.
+- Compact classification filters and hover tooltips are required
+  (`graph/GraphLegend.tsx`, `graph/GraphControls.tsx`); canvas labels stay
+  compact by default, with detail pushed into the inspector so the first
+  viewport stays readable for reduced-motion users.
+- When the reasoning result includes `exports.navigator_layer`, it remains
+  available as a download from the Exports panel (`ExportsPanel.tsx`).
 
 ## 7. Accessibility minimums
 

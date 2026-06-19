@@ -82,28 +82,49 @@ remain reachable, but they are no longer framed as competing top-level modules.
 ## Reasoning Workbench
 
 `/analyze` (`pages/AnalyzePage.tsx`) is the CVEzD3FEND Single Pane of Glass
-for attack surface reasoning and graph navigation. It still runs the live
-enrichment + reasoning engine for a single CVE, but the hierarchy is now
-operational instead of contract-first:
+for attack surface reasoning and graph navigation — productized as a premium
+Threat-Defense Workbench. It still runs the live enrichment + reasoning
+engine for a single CVE, organized under one guiding principle:
 
-- Default state: one CVE input, explanatory copy, and optional advanced access.
-- Top command bar: CVE input, Analyze/Refresh, reviewer identity, source/state
-  indicators.
-- Left rail: route entities, node-type counts, evidence classification counts,
-  selected-node focus.
-- Center: the Threat-Defense Knowledge Graph Navigator, with the
-  canonical/partial path, classified edges, selected-node/edge highlighting,
-  mitigation emphasis, graph modes, and focused context.
-- Right rail: analyst-readable narrative, Tier 1 action, review/uncertainty,
-  compact risk signal, and governed AI review controls.
-- Bottom drawer: provenance, evidence, reasoning trace, SOC/Detection/Hunting/
-  CTEM, exports, and raw details behind intentional disclosure.
+**Graph-first. Decision-first. Evidence-on-demand.**
 
-The first viewport should answer what CVE is being analyzed, what route is
-highlighted, what the reasoning engine concludes, what Tier 1 should do now,
-what requires human review, and what evidence supports or weakens the route.
-Full reviewer/engineering detail remains available without dominating the
-default experience.
+The workbench is composed of four deliberate zones (it renders on a wider
+`max-w-screen-2xl` container than the rest of the app so the stage can
+breathe):
+
+1. **Command layer** — one sticky dark command bar: CVE command input
+   (`CveAnalyzeForm`), Analyze/Refresh, and — once a CVE is staged — the
+   current CVE, status, source mode, operational priority, review signal and
+   the knowledge-bundle link (`CommandSignals`).
+2. **Graph stage** — the Threat-Defense Knowledge Graph Navigator is the
+   dominant center surface: full-width dark canvas, route-spine chips in the
+   header, graph modes, compact evidence filters, and a selection inspector
+   that overlays the canvas on large screens instead of competing with the
+   briefing rail. The legend is available behind a collapsed disclosure.
+3. **Intelligence briefing (right rail)** — decision-first hierarchy:
+   `Tier1BriefingCard` (executive conclusion, priority + confidence/
+   provenance chips, recommended Tier 1 action, defensive direction), then
+   `ReasoningSkillsPanel` ("Threat-Defense Reasoning Skills"), the
+   human-review gate when required, the compact risk evidence, and the
+   governed AI Review controls last.
+4. **Evidence dock (bottom)** — `AdvancedEvidenceDrawer`, a progressive
+   disclosure dock for provenance, reasoning trace, SOC/Detection/Hunting/
+   CTEM, exports and raw details.
+
+The left rail (`EntityNavigationPanel`) is a **route navigator**, not a
+filter panel: it renders the CVE→CWE→CAPEC→ATT&CK→D3FEND spine with stage
+labels and review markers, route completeness and defensive-path signals,
+collapsible secondary buckets (primary/conditional/defensive/weak-fit), and
+the focused-node context. Entity/classification counts live behind a
+collapsed "Entity & evidence context" disclosure.
+
+The first viewport answers what CVE is being analyzed, what route is
+highlighted, the operational priority, what the reasoning engine concludes,
+what Tier 1 should do now, what requires human review, and how confident the
+reasoning is — in under 30 seconds, without opening any drawer. Full
+reviewer/engineering detail remains available without dominating the default
+experience. The empty state stages a ghost route spine on the dark canvas and
+never fakes data.
 
 ### API availability & degraded state
 
@@ -120,8 +141,9 @@ The page depends on the optional API sidecar (`CVEzD3FEND api`,
 
 ### Components (`components/reasoning/`)
 
-- `CveAnalyzeForm` — CVE id input + Analyze submit, synced to `?cve=` in the
-  URL (UIX_CONTRACT §5).
+- `CveAnalyzeForm` — CVE id command input + Analyze submit, styled as a dark
+  workbench command control and synced to `?cve=` in the URL
+  (UIX_CONTRACT §5).
 - `SourceModeBadge` — shows whether enrichment data is `live`, `cached`, or
   `offline` (`SOURCE_MODE_LABELS`/`sourceModeClass`).
 - `HumanReviewBanner` — `role="alert"` banner shown only when
@@ -133,8 +155,19 @@ The page depends on the optional API sidecar (`CVEzD3FEND api`,
   Threat-Defense Knowledge Graph Navigator and preserves the focused
   CVE -> CWE -> CAPEC -> ATT&CK -> D3FEND route or an honest partial route
   when the canonical chain is incomplete.
-- `EntityNavigationPanel` — left-side graph navigation and filter context:
-  route chips, node-type counts, classification counts, selected-node actions.
+- `EntityNavigationPanel` — the left route navigator: canonical route spine
+  with stage labels and review markers, route completeness/defensive-path
+  signals, collapsible secondary buckets, selected-node actions, and counts
+  behind a collapsed disclosure.
+- `Tier1BriefingCard` — head of the briefing rail: executive conclusion,
+  priority + mean-confidence + official-edge-share chips, the recommended
+  Tier 1 action (`tier1_conclusion_es` + first validations) and the
+  defensive direction (focusable D3FEND nodes, defensive edge count).
+- `ReasoningSkillsPanel` — "Threat-Defense Reasoning Skills": the engine's
+  visible narrative and classified edges presented as six reasoning lenses
+  (CVE Interpreter, Weakness Mapper, Attack Pattern Mapper, ATT&CK Mapper,
+  D3FEND Advisor, Tier 1 Briefing). Every line is existing contract data;
+  no fabricated reasoning, no hidden chain-of-thought.
 - `ThreatDefenseGraphNavigator` — premium semantic graph surface inside
   Analyze. It supports focused route / reasoning neighborhood / mitigation
   path / full traceability / evidence modes, zoom and pan, fit/reset controls,
@@ -155,11 +188,12 @@ The page depends on the optional API sidecar (`CVEzD3FEND api`,
   to avoid repeated action buttons.
 - `ProvenancePanel` — groups the reasoning result's `provenance` map by
   source into collapsible sections, each rendered via `ReasoningEdgesList`.
-- `RiskSummaryPanel`, `NarrativePanel`, `RouteContractPanel` — risk facts
-  (CVSS/EPSS/KEV/exploitability), the engine's Spanish narrative in product
-  language ("Narrativa", "Ruta", "Por qué importa", "Confianza y riesgo"),
-  and the six route-contract buckets (canonical/primary/secondary/conditional/
-  defensive/weak-fit) as links into the knowledge bundle.
+- `RiskSummaryPanel`, `RouteContractPanel` — risk facts
+  (CVSS/EPSS/KEV/exploitability) and the six route-contract buckets
+  (canonical/primary/secondary/conditional/defensive/weak-fit) as links into
+  the knowledge bundle. The engine's Spanish narrative fields are surfaced
+  verbatim by `Tier1BriefingCard` and `ReasoningSkillsPanel` — this is the
+  visible reasoning summary, never a hidden chain-of-thought.
 - `ActionListPanel` — generic renderer reused for the SOC Action Pack,
   Detection Engineering, and Threat Hunting panels.
 - `CtemPanel` — CTEM plan (priority, remediation actions, validation steps,

@@ -8,12 +8,13 @@ touching the real `data/` directory or the network.
 
 from __future__ import annotations
 
+import errno
 import json
 
 import pytest
 from typer.testing import CliRunner
 
-from CVEzD3FEND.cli import app
+from CVEzD3FEND.cli import _bind_static_server, app
 from CVEzD3FEND.config import Settings
 from CVEzD3FEND.intelligence import candidates as ai_candidates
 
@@ -39,6 +40,49 @@ def test_validate(cli_env):
     result = runner.invoke(app, ["validate"])
     assert result.exit_code == 0
     assert "structurally valid" in result.stdout
+
+
+def test_bind_static_server_retries_busy_ports():
+    seen_ports: list[int] = []
+
+    class FakeHTTPServer:
+        def __init__(self, address, handler):
+            seen_ports.append(address[1])
+            if address[1] < 8789:
+                raise OSError(errno.EADDRINUSE, "Address already in use")
+            self.address = address
+
+    httpd, bound_port = _bind_static_server(FakeHTTPServer, object(), "127.0.0.1", 8787, retry_ports=5)
+    assert bound_port == 8789
+    assert seen_ports == [8787, 8788, 8789]
+    assert httpd.address == ("127.0.0.1", 8789)
+
+
+def test_serve_accepts_host_and_port(cli_env, monkeypatch):
+    captured: dict[str, object] = {}
+
+    class FakeHTTPServer:
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+        def shutdown(self):
+            captured["shutdown"] = True
+
+    def fake_bind(httpd_cls, handler, host, port, retry_ports=25):
+        captured["host"] = host
+        captured["port"] = port
+        captured["handler_directory"] = handler.keywords["directory"]
+        return FakeHTTPServer(), port
+
+    monkeypatch.setattr("CVEzD3FEND.cli._bind_static_server", fake_bind)
+
+    result = runner.invoke(app, ["serve", "--host", "0.0.0.0", "--port", "8999"])
+    assert result.exit_code == 0
+    assert captured["host"] == "0.0.0.0"
+    assert captured["port"] == 8999
+    assert captured["handler_directory"].endswith("dist")
+    assert captured["shutdown"] is True
+    assert "Serving" in result.stdout
 
 
 def test_search(cli_env):

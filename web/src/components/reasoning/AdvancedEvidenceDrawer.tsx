@@ -23,21 +23,33 @@ export default function AdvancedEvidenceDrawer({ result, cveId }: { result: Reas
   const warningsAndErrors = [...result.warnings.map((message) => ({ type: "Warning", message })), ...result.errors.map((message) => ({ type: "Error", message }))];
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <details>
-        <summary className="flex cursor-pointer select-none flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3">
-          <span>
-            <span className="block text-sm font-semibold text-slate-800">Evidencia / Advanced details</span>
-            <span className="text-xs text-slate-500">Provenance, reasoning trace, SOC/detection/hunting/CTEM, exports and raw details.</span>
+    <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-xl">
+      <details className="group">
+        <summary className="flex cursor-pointer select-none flex-wrap items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-900/60">
+          <span className="flex items-center gap-3">
+            <span
+              className="text-slate-500 transition-transform duration-150 group-open:rotate-90 motion-reduce:transition-none"
+              aria-hidden="true"
+            >
+              ▸
+            </span>
+            <span>
+              <span className="block text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Evidence dock</span>
+              <span className="block text-sm font-semibold text-slate-100">Evidencia / Advanced details</span>
+              <span className="text-xs text-slate-400">Provenance, reasoning trace, SOC/detection/hunting/CTEM, exports and raw details.</span>
+            </span>
           </span>
           <span className="flex flex-wrap gap-1.5 text-[11px]">
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600">{result.edges.length} edges</span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600">{provenanceCount(result)} provenance refs</span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600">{evidence.length} evidence points</span>
+            <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{result.edges.length} edges</span>
+            <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{provenanceCount(result)} provenance refs</span>
+            <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-slate-300">{evidence.length} evidence points</span>
+            {warningsAndErrors.length > 0 && (
+              <span className="rounded-full border border-amber-500/50 bg-amber-950/40 px-2 py-1 text-amber-200">{warningsAndErrors.length} data notice(s)</span>
+            )}
           </span>
         </summary>
 
-        <div className="border-t border-slate-100 bg-slate-50/70 p-4">
+        <div className="border-t border-slate-800 bg-slate-100 p-4">
           <div className="grid gap-4 xl:grid-cols-2">
             <section className="rounded-md border border-slate-200 bg-white p-4 xl:col-span-2">
               <h2 className="text-sm font-semibold text-slate-700">Evidence reasoning</h2>

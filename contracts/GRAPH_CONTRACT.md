@@ -86,8 +86,27 @@ No other edge `type` values are valid.
 
 ```
 id, source, target, type, label, confidence, deterministic, inferred,
-source_ref, source_url, evidence[], created_at, updated_at, metadata{}
+source_ref, source_url, evidence[],
+resolution_state, lifecycle_state, scope_state, assertion_type, confidence_basis,
+created_at, updated_at, metadata{}
 ```
+
+### Edge-state dimensions (Phase 2B)
+
+`confidence` answers how strongly an edge is asserted, not whether the id is
+real or how it was resolved. These state dimensions are orthogonal:
+
+| field | allowed values | default | meaning |
+|---|---|---|---|
+| `resolution_state` | `resolved` \| `unresolved` \| `ambiguous` \| `invalid` | `resolved` | Whether the referenced id could be resolved to a usable canonical id |
+| `lifecycle_state` | `active` \| `deprecated` \| `revoked` \| `unknown` | `active` | Lifecycle of the referenced id in its source framework |
+| `scope_state` | `included` \| `excluded` \| `contextual` | `included` | Whether the edge is in scope for the active profile |
+| `assertion_type` | `canonical` \| `source_derived` \| `curated` \| `inferred` | `canonical` | Provenance class of the assertion |
+| `confidence_basis` | `exact_id` \| `numeric_padding` \| `parent_in_registry` \| `official_mapping` \| `unverified` \| `unresolved` \| `null` | `null` | Why the confidence value holds |
+
+Only `resolved` entries are written as canonical edges. Structurally invalid or
+absent ids MUST NOT be promoted to nodes/edges; they are recorded on the CAPEC
+node as `metadata.unresolved_attack_refs` and surfaced as warnings.
 
 - `id` is deterministic: `sha1(f"{type}:{source}->{target}")[:16]`.
 - `deterministic=true` means the edge was produced by a pure function over

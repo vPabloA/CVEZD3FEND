@@ -71,6 +71,32 @@ def fetch_techniques_association(client: httpx.Client, settings: Settings):
     return data, source, None
 
 
+def fetch_techniques_db(client: httpx.Client, settings: Settings):
+    """ATT&CK technique registry used as the resolver universe."""
+    result = fetch_url(client, C.TECHNIQUES_DB_URL, settings)
+    cache_raw(settings, "techniques_db.json", result)
+    if not result.ok:
+        source = _source_from_fetch(
+            C.SOURCE_ID_TECHNIQUES_DB,
+            "CVE2CAPEC Techniques DB",
+            "techniques_db",
+            C.TECHNIQUES_DB_URL,
+            result,
+        )
+        source.status = "unavailable"
+        return {}, source, f"techniques_db.json unavailable (optional): {result.error}"
+    data = json.loads(result.content)
+    source = _source_from_fetch(
+        C.SOURCE_ID_TECHNIQUES_DB,
+        "CVE2CAPEC Techniques DB",
+        "techniques_db",
+        C.TECHNIQUES_DB_URL,
+        result,
+        record_count=len(data),
+    )
+    return data, source, None
+
+
 def fetch_atlas_db(client: httpx.Client, settings: Settings):
     result = fetch_url(client, C.ATLAS_DB_URL, settings)
     cache_raw(settings, "atlas_db.json", result)
